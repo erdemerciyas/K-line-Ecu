@@ -9,6 +9,7 @@
 
 typedef enum { SET_PROTO_AUTO = 0, SET_PROTO_CAN, SET_PROTO_KLINE } set_proto_t;
 typedef enum { SET_PRESS_MAP = 0, SET_PRESS_BOOST } set_press_t;
+typedef enum { SET_VIEW_RPM = 0, SET_VIEW_SPEED } set_view_t;
 
 typedef struct {
     uint8_t brightness;     // 5..100 %
@@ -20,6 +21,7 @@ typedef struct {
     uint8_t clt_warn;       // 95..115 C
     uint8_t batt_low;       // 105..125 = 10.5..12.5 V
     uint8_t beep;           // boot melody 0 / 1
+    uint8_t main_view;      // set_view_t: sürüş sayfasında büyük gösterilen değer
 } settings_t;
 
 typedef struct {

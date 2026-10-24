@@ -64,7 +64,8 @@ static const char *TAG = "obd";
 #define PID_LAST            0x5F    // sorgulanan en büyük PID (60 = sonraki destek haritası)
 
 // ekran bir şey istemiyorsa hızlı turdakiler (her istek ~140 ms); desteklenen diğer bütün PID'ler yavaş turda
-static const uint8_t FAST_PIDS[] = {PID_MAP, PID_TPS, PID_O2S1_WR_V, PID_O2S1_WR_I, PID_O2S1, PID_SPEED, PID_MAF};
+// hararet her zaman hızlı turda: uyarı hangi sayfada olunursa olsun gecikmesin
+static const uint8_t FAST_PIDS[] = {PID_CLT, PID_MAP, PID_TPS, PID_O2S1_WR_V, PID_O2S1_WR_I, PID_O2S1, PID_SPEED, PID_MAF};
 
 static SemaphoreHandle_t s_lock;
 static vems_data_t s_data;

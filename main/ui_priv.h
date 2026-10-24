@@ -100,6 +100,11 @@ void ui_ch_reset(vems_ch_t c);
 // ---- services of the screen manager (dash_ui.c), safe to call from widget events ----
 void ui_request_rebuild(void);          // a setting changed the page layout
 void ui_request_rescan(void);           // drop the connection, show the boot screen again
+void ui_request_dtc_page(void);         // arıza kodları sayfasına geç (uyarı şeridi)
+
+// ---- uyarılar (ui_alert.c): her sayfanın üstünde şerit / kart ve buzzer ----
+void ui_alert_init(void);
+void ui_alert_update(const vems_data_t *d, bool fresh, uint32_t mask);
 
 // ---- screens ----
 lv_obj_t *ui_splash_create(void);
@@ -108,6 +113,7 @@ bool ui_splash_update(void);                        // true when the splash may 
 lv_obj_t *ui_main_create(int page, int pages, uint32_t mask);
 void ui_main_update(const vems_data_t *d, bool fresh);
 uint32_t ui_main_channels(void);                    // sayfadaki kanallar: OBD bunları hızlı sorgular
+bool ui_main_toggle_view(void);                     // büyük değer devir <-> hız, hız yoksa false
 
 lv_obj_t *ui_focus_create(int page, int pages, uint32_t mask);
 void ui_focus_update(const vems_data_t *d, bool fresh);
@@ -122,14 +128,8 @@ lv_obj_t *ui_afr_create(int page, int pages);
 void ui_afr_update(const vems_data_t *d, bool fresh);
 void ui_afr_reset_minmax(void);
 
-lv_obj_t *ui_profile_create(int page, int pages);
-void ui_profile_update(bool fresh);
-
 lv_obj_t *ui_dtc_create(int page, int pages);
 void ui_dtc_update(const vems_data_t *d, bool fresh);
-
-lv_obj_t *ui_link_create(int page, int pages, uint32_t mask);
-void ui_link_update(bool fresh);
 
 lv_obj_t *ui_settings_create(int page, int pages);
 

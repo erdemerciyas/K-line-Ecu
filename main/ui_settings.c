@@ -8,7 +8,10 @@
 #include "board_lcd.h"
 #include "ui_priv.h"
 
-typedef enum { ID_BRIGHT, ID_SHIFT, ID_RPMMAX, ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_RESET, ID_VER, ID_COUNT } set_id_t;
+typedef enum {
+    ID_VIEW, ID_BRIGHT, ID_SHIFT, ID_RPMMAX, ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_RESCAN, ID_RESET,
+    ID_VER, ID_COUNT
+} set_id_t;
 typedef enum { T_RANGE, T_ENUM, T_ACTION, T_INFO } row_type_t;
 
 typedef struct {
@@ -18,6 +21,7 @@ typedef struct {
 } row_def_t;
 
 static const row_def_t ROWS[ID_COUNT] = {
+    [ID_VIEW]   = {"Ana gösterge",   T_ENUM},
     [ID_BRIGHT] = {"Parlaklık",      T_RANGE, 5, 100, 5},
     [ID_SHIFT]  = {"Vites uyarısı",  T_RANGE, 3000, 9500, 100},
     [ID_RPMMAX] = {"Devir ölçeği",   T_ENUM},
@@ -27,6 +31,7 @@ static const row_def_t ROWS[ID_COUNT] = {
     [ID_CLT]    = {"Hararet uyarısı", T_RANGE, 95, 115, 1},
     [ID_BATT]   = {"Akü alt sınırı", T_RANGE, 105, 125, 1},
     [ID_BEEP]   = {"Açılış sesi",    T_ENUM},
+    [ID_RESCAN] = {"Bağlantı",       T_ACTION},
     [ID_RESET]  = {"Varsayılanlar",  T_ACTION},
     [ID_VER]    = {"Sürüm",          T_INFO},
 };
@@ -48,6 +53,7 @@ static struct {
 static int get_val(set_id_t id)
 {
     switch (id) {
+    case ID_VIEW:   return g_settings.main_view;
     case ID_BRIGHT: return g_settings.brightness;
     case ID_SHIFT:  return g_settings.shift_rpm;
     case ID_RPMMAX:
@@ -70,6 +76,7 @@ static int get_val(set_id_t id)
 static int enum_count(set_id_t id)
 {
     switch (id) {
+    case ID_VIEW:   return 2;
     case ID_RPMMAX: return 5;
     case ID_FUEL:   return SETTINGS_FUEL_COUNT < ENUM_MAX ? SETTINGS_FUEL_COUNT : ENUM_MAX;
     case ID_PRESS:  return 2;
@@ -83,6 +90,7 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
 {
     static const char *const PROTO[] = {"Otomatik", "Sadece CAN", "Sadece K-Line"};
     switch (id) {
+    case ID_VIEW:   snprintf(buf, len, "%s", v ? "Hız" : "Devir"); break;
     case ID_BRIGHT: snprintf(buf, len, "%d %%", v); break;
     case ID_SHIFT:  snprintf(buf, len, "%d rpm", v); break;
     case ID_RPMMAX: snprintf(buf, len, "%d rpm", RPM_MAX_OPTS[v]); break;
@@ -92,6 +100,7 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
     case ID_CLT:    snprintf(buf, len, "%d °C", v); break;
     case ID_BATT:   snprintf(buf, len, "%d.%d V", v / 10, v % 10); break;
     case ID_BEEP:   snprintf(buf, len, "%s", v ? "Açık" : "Kapalı"); break;
+    case ID_RESCAN: snprintf(buf, len, "Yeniden ara"); break;
     case ID_RESET:  snprintf(buf, len, "Sıfırla"); break;
     case ID_VER:    snprintf(buf, len, "v2.0 · ESP32-S3"); break;
     default:        buf[0] = '\0'; break;
@@ -114,6 +123,7 @@ static void commit(set_id_t id, int v)
 {
     bool rebuild = false, rescan = false;
     switch (id) {
+    case ID_VIEW:   g_settings.main_view = v; rebuild = true; break;
     case ID_BRIGHT: g_settings.brightness = v; board_lcd_set_backlight(v); break;
     case ID_SHIFT:  g_settings.shift_rpm = v; rebuild = true; break;
     case ID_RPMMAX: g_settings.rpm_max = RPM_MAX_OPTS[v]; rebuild = true; break;
@@ -274,7 +284,9 @@ static void row_cb(lv_event_t *e)
     if (s.ed) {
         return;
     }
-    if (ROWS[id].type == T_ACTION) {
+    if (id == ID_RESCAN) {
+        ui_request_rescan();
+    } else if (ROWS[id].type == T_ACTION) {
         settings_reset();
         board_lcd_set_backlight(g_settings.brightness);
         refresh_rows();

@@ -9,7 +9,7 @@ static const char *TAG = "settings";
 
 #define NVS_NAMESPACE   "vems"
 #define NVS_KEY         "settings"
-#define SETTINGS_VER    1
+#define SETTINGS_VER    2
 
 const settings_fuel_t SETTINGS_FUELS[] = {
     {"Benzin", 14.7f},
@@ -57,6 +57,7 @@ static settings_t defaults(void)
 #else
         .beep = 0,
 #endif
+        .main_view = SET_VIEW_RPM,
     };
     return s;
 }
@@ -67,7 +68,8 @@ static bool valid(const settings_t *s)
            s->shift_rpm >= 3000 && s->shift_rpm <= 9500 &&
            s->rpm_max >= 6000 && s->rpm_max <= 10000 &&
            s->fuel < SETTINGS_FUEL_COUNT && s->pressure <= SET_PRESS_BOOST && s->proto <= SET_PROTO_KLINE &&
-           s->clt_warn >= 95 && s->clt_warn <= 115 && s->batt_low >= 105 && s->batt_low <= 125 && s->beep <= 1;
+           s->clt_warn >= 95 && s->clt_warn <= 115 && s->batt_low >= 105 && s->batt_low <= 125 && s->beep <= 1 &&
+           s->main_view <= SET_VIEW_SPEED;
 }
 
 void settings_init(void)

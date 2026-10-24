@@ -1,7 +1,9 @@
 /*
- * Drive page: RPM ring with shift light, big RPM, speed (when the ECU reports it), six tiles and an
- * info line. Tiles are picked from the channels the source really delivers, in priority order:
- * pressure (MAP or boost, settings), AFR or narrow band O2, coolant, intake air, battery, throttle ...
+ * Sürüş sayfası. Dış halka yarış aracı LED şeridi gibi segment segment yanar: devirde mavi -> sarı -> kırmızı
+ * bölge (vites noktasında segmentler ve çerçeve flaşlar), hızda mavi. Büyük gösterilen değer (devir ya da hız)
+ * sayfaya dokunarak ya da ayarlardan seçilir, diğeri üstte küçük durur. Tepe değeri beyaz segmentte kısa süre
+ * kalır. Altta kaynağın gerçekten verdiği üç kanal (şarj, tüketim, yağ, emme ...), alt boşlukta hararet yayı.
+ * Üst satır sadece söylenecek bir şey varsa yazar: bağlantı yok, arıza kodu, motor soğuk.
  */
 #include <math.h>
 #include <stdio.h>
@@ -11,106 +13,155 @@
 #include "board_lcd.h"
 #include "ui_priv.h"
 
-#define TILE_COUNT  6
-#define EXTRA_COUNT 3
+#define POD_MAX         3
+#define POD_DX          104         // kanal sütunları arası
+#define SPEED_MAX       200
+#define SEG_LEN         26
+#define PEAK_HOLD_US    (1200 * 1000)
+#define CLT_LO          40          // hararet yayı aralığı
+#define CLT_HI          130
+#define CLT_COLD        60          // altı "motor soğuk"
+
+#define C_SEG_OFF       lv_color_hex(0x181B22)
+#define C_SEG_RED       lv_color_hex(0x3A1416)  // yanmayan kırmızı bölge
+#define C_SEG_LO        lv_color_hex(0x1E5BFF)
+#define C_SEG_HI        lv_color_hex(0x35E0FF)
+
+enum { LIT_N, LIT_W, LIT_R, LIT_COUNT };
 
 static struct {
     lv_obj_t *meter;
-    lv_meter_indicator_t *rpm_arc;
-    lv_color_t rpm_color;
-    lv_obj_t *shift;            // bezel ring flashing at the shift point
-    bool blink;
+    lv_meter_indicator_t *red_off;
+    lv_meter_indicator_t *lit[LIT_COUNT];
+    lv_meter_indicator_t *peak;
+    int max, step, warn, red;   // ölçek biriminde: devirde 100 rpm, hızda km/h
+    int peak_v;
+    int64_t peak_t;
+    lv_obj_t *shift;            // vites noktasında yanıp sönen çerçeve
     lv_obj_t *status;
-    lv_obj_t *rpm;
-    lv_obj_t *sub;
-    lv_obj_t *info;
-    lv_obj_t *flags;
-    ui_tile_t tiles[TILE_COUNT];
-    vems_ch_t tile_ch[TILE_COUNT];
-    int ntiles;
-    vems_ch_t extra[EXTRA_COUNT];
-    int nextra;
+    lv_obj_t *sec_val;
+    lv_obj_t *sec_unit;
+    lv_obj_t *val;
+    lv_obj_t *unit;
+    lv_obj_t *pod_cap[POD_MAX];
+    lv_obj_t *pod_val[POD_MAX];
+    vems_ch_t pod_ch[POD_MAX];
+    int npods;
+    lv_obj_t *clt_arc;
+    lv_obj_t *clt_val;
+    lv_color_t clt_color;
+    bool speed_view;
     bool has_speed;
-    int64_t rate_t0;
-    uint32_t rate_seq0;
-    int hz;
+    bool has_clt;
+    bool has_lh;
 } m;
-
-static bool chosen(vems_ch_t c)
-{
-    for (int i = 0; i < m.ntiles; i++) {
-        if (m.tile_ch[i] == c) {
-            return true;
-        }
-    }
-    return false;
-}
 
 static void pick_channels(uint32_t mask)
 {
     mask = ui_ch_layout_mask(mask);
     const vems_ch_t pressure = g_settings.pressure == SET_PRESS_BOOST ? CH_BOOST : CH_MAP;
-    const vems_ch_t prio[] = {pressure, CH_AFR, CH_O2V, CH_CLT, CH_IAT, CH_BATT, CH_TPS, CH_FUEL_L100, CH_LOAD,
-                              CH_ADV, CH_OIL, CH_FUEL, CH_PW, CH_VE, CH_MAF};
-    m.ntiles = 0;
-    for (size_t i = 0; i < sizeof(prio) / sizeof(prio[0]) && m.ntiles < TILE_COUNT; i++) {
-        vems_ch_t c = prio[i];
-        if (!(mask & CH_BIT(c)) || (c == CH_O2V && (mask & CH_BIT(CH_AFR)))) {
+    // sürücüyü ilgilendirenler önce; basınç, karışım ve diğerleri yer kalırsa
+    const vems_ch_t prio[] = {CH_BATT, CH_FUEL_L100, CH_FUEL_LH, CH_OIL, CH_FUEL, CH_IAT, pressure, CH_AFR, CH_TPS,
+                              CH_LOAD, CH_ADV};
+    m.npods = 0;
+    for (size_t i = 0; i < sizeof(prio) / sizeof(prio[0]) && m.npods < POD_MAX; i++) {
+        const vems_ch_t c = prio[i];
+        if (!(mask & CH_BIT(c)) || (c == CH_FUEL_LH && (mask & CH_BIT(CH_FUEL_L100)))) {
             continue;
         }
-        m.tile_ch[m.ntiles++] = c;
-    }
-    const vems_ch_t extra[] = {CH_FUEL_LH, CH_O2V2, CH_ADV, CH_LOAD, CH_OIL, CH_FUEL, CH_PW, CH_VE, CH_MAF, CH_STFT, CH_LTFT,
-                               CH_IAC};
-    m.nextra = 0;
-    for (size_t i = 0; i < sizeof(extra) / sizeof(extra[0]) && m.nextra < EXTRA_COUNT; i++) {
-        if ((mask & CH_BIT(extra[i])) && !chosen(extra[i])) {
-            m.extra[m.nextra++] = extra[i];
-        }
+        m.pod_ch[m.npods++] = c;
     }
     m.has_speed = mask & CH_BIT(CH_SPEED);
+    m.has_clt = mask & CH_BIT(CH_CLT);
+    m.has_lh = mask & CH_BIT(CH_FUEL_LH);
 }
 
 uint32_t ui_main_channels(void)
 {
-    uint32_t want = CH_BIT(CH_RPM) | (m.has_speed ? CH_BIT(CH_SPEED) : 0);
-    for (int i = 0; i < m.ntiles; i++) {
-        want |= CH_BIT(m.tile_ch[i]);
-    }
-    for (int i = 0; i < m.nextra; i++) {
-        want |= CH_BIT(m.extra[i]);
+    uint32_t want = CH_BIT(CH_RPM) | (m.has_speed ? CH_BIT(CH_SPEED) : 0) | (m.has_clt ? CH_BIT(CH_CLT) : 0);
+    for (int i = 0; i < m.npods; i++) {
+        want |= CH_BIT(m.pod_ch[i]);
     }
     return want;
 }
 
+bool ui_main_toggle_view(void)
+{
+    if (!m.has_speed) {
+        return false;
+    }
+    g_settings.main_view = m.speed_view ? SET_VIEW_RPM : SET_VIEW_SPEED;
+    settings_save();
+    ui_request_rebuild();
+    return true;
+}
+
+/** Ortalanmış "değer birim" satırı, yazı değişince kendiliğinden ortada kalır. */
+static void value_row(lv_obj_t *scr, int y, const lv_font_t *font, lv_obj_t **val, lv_obj_t **unit, const char *u)
+{
+    lv_obj_t *row = lv_obj_create(scr);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_set_style_pad_column(row, 6, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y);
+    *val = ui_label(row, font, C_MUTED, "--");
+    *unit = ui_label(row, &ui_font_label, C_MUTED, u);
+    lv_obj_set_style_text_letter_space(*unit, 2, 0);
+}
+
+static const char *pod_caption(vems_ch_t c, char *buf, size_t len)
+{
+    const ui_ch_info_t *ci = &UI_CH[c];
+    if (ci->unit[0] && c != CH_BOOST && c != CH_FUEL_L100) {
+        snprintf(buf, len, "%s %s", ci->caption, ci->unit);
+    } else {
+        snprintf(buf, len, "%s", ci->caption);
+    }
+    return buf;
+}
+
 lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
 {
-    const int rpm_max = g_settings.rpm_max, rpm_shift = g_settings.shift_rpm;
     lv_obj_t *scr = ui_screen_create();
     pick_channels(mask);
+    m.speed_view = m.has_speed && g_settings.main_view == SET_VIEW_SPEED;
 
-    // RPM ring, scale in 100 rpm units, labels in 1000 rpm
+    if (m.speed_view) {
+        m.max = SPEED_MAX;
+        m.step = 5;
+        m.warn = m.red = SPEED_MAX + 1;     // hızda renk bölgesi yok
+    } else {
+        m.max = g_settings.rpm_max / 100;
+        m.step = 2;
+        m.red = g_settings.shift_rpm / 100;
+        m.warn = m.red - 10;
+    }
+    const int n = m.max / m.step + 1;
+    // segment genişliği aralığın ~%55'i (270° yay, ortalama yarıçap ~215 px)
+    const int seg_w = (int)(2 * 3.14159f * 215 * 0.75f / (n - 1) * 0.55f);
+
     m.meter = ui_ring_meter(scr);
-    const int max = rpm_max / 100;
+    lv_obj_set_style_pad_all(m.meter, 12, 0);
+    lv_obj_set_style_text_font(m.meter, &ui_font_label, 0);
+    if (m.speed_view) {
+        lv_obj_remove_event_cb(m.meter, ui_meter_label_div10_cb);   // etiketler km/h
+    }
     lv_meter_scale_t *s = lv_meter_add_scale(m.meter);
-    lv_meter_set_scale_range(m.meter, s, 0, max, 270, 135);
-    lv_meter_set_scale_ticks(m.meter, s, max / 2 + 1, 2, 8, C_TICK);
-    lv_meter_set_scale_major_ticks(m.meter, s, 5, 3, 16, C_SOFT, 12);
+    lv_meter_set_scale_range(m.meter, s, 0, m.max, 270, 135);
+    lv_meter_set_scale_ticks(m.meter, s, n, seg_w, SEG_LEN, C_SEG_OFF);
+    // etiket: devirde her 1000 rpm, hızda her 20 km/h
+    lv_meter_set_scale_major_ticks(m.meter, s, m.speed_view ? 4 : 5, seg_w, SEG_LEN, C_SEG_OFF, 12);
 
-    lv_meter_indicator_t *red_ticks = lv_meter_add_scale_lines(m.meter, s, C_ALERT, C_ALERT, false, 0);
-    lv_meter_set_indicator_start_value(m.meter, red_ticks, rpm_shift / 100);
-    lv_meter_set_indicator_end_value(m.meter, red_ticks, max);
-    lv_meter_indicator_t *red_arc = lv_meter_add_arc(m.meter, s, 3, C_ALERT, 0);
-    lv_meter_set_indicator_start_value(m.meter, red_arc, rpm_shift / 100);
-    lv_meter_set_indicator_end_value(m.meter, red_arc, max);
-
-    lv_meter_indicator_t *track = lv_meter_add_arc(m.meter, s, 16, C_TRACK, 24);
-    lv_meter_set_indicator_start_value(m.meter, track, 0);
-    lv_meter_set_indicator_end_value(m.meter, track, max);
-    m.rpm_color = C_PRIMARY;
-    m.rpm_arc = lv_meter_add_arc(m.meter, s, 16, m.rpm_color, 24);
-    lv_meter_set_indicator_start_value(m.meter, m.rpm_arc, 0);
-    lv_meter_set_indicator_end_value(m.meter, m.rpm_arc, 0);
+    // aralıklar hiç çakışmaz; çakışsa son eklenen kazanır (tepe segmenti)
+    m.red_off = lv_meter_add_scale_lines(m.meter, s, C_SEG_RED, C_SEG_RED, false, 0);
+    m.lit[LIT_N] = lv_meter_add_scale_lines(m.meter, s, C_SEG_LO, C_SEG_HI, false, 0);
+    m.lit[LIT_W] = lv_meter_add_scale_lines(m.meter, s, C_WARN, C_WARN, false, 0);
+    m.lit[LIT_R] = lv_meter_add_scale_lines(m.meter, s, C_ALERT, C_ALERT, false, 0);
+    m.peak = lv_meter_add_scale_lines(m.meter, s, C_TEXT, C_TEXT, false, 0);
+    m.peak_v = -1;
 
     m.shift = lv_obj_create(scr);
     lv_obj_remove_style_all(m.shift);
@@ -124,57 +175,105 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
     lv_obj_add_flag(m.shift, LV_OBJ_FLAG_HIDDEN);
 
     m.status = ui_label(scr, &ui_font_label, C_WARN, "");
-    lv_obj_set_style_text_letter_space(m.status, 1, 0);
+    lv_obj_set_style_text_letter_space(m.status, 2, 0);
     lv_obj_align(m.status, LV_ALIGN_TOP_MID, 0, 80);
 
-    m.rpm = ui_label(scr, &ui_font_big, C_MUTED, "----");
-    lv_obj_align(m.rpm, LV_ALIGN_TOP_MID, 0, 98);
-    m.sub = ui_label(scr, &ui_font_label_lg, C_MUTED, "RPM");
-    lv_obj_set_style_text_letter_space(m.sub, 4, 0);
-    lv_obj_align(m.sub, LV_ALIGN_TOP_MID, 0, 178);
-
-    static const int X[3] = {UI_COL_X0, UI_COL_X1, UI_COL_X2};
-    for (int i = 0; i < m.ntiles; i++) {
-        char cap[24];
-        const ui_ch_info_t *ci = &UI_CH[m.tile_ch[i]];
-        if (ci->unit[0] && m.tile_ch[i] != CH_BOOST && m.tile_ch[i] != CH_FUEL_L100) {
-            snprintf(cap, sizeof(cap), "%s %s", ci->caption, ci->unit);
-        } else {
-            snprintf(cap, sizeof(cap), "%s", ci->caption);
-        }
-        ui_tile_create(&m.tiles[i], scr, X[i % 3], 210 + (i / 3) * 66, cap);
+    if (m.has_speed) {
+        value_row(scr, 106, &ui_font_value, &m.sec_val, &m.sec_unit, m.speed_view ? "RPM" : "KM/H");
     }
 
-    m.info = ui_label(scr, &ui_font_label_lg, C_TEXT, "");
-    lv_label_set_recolor(m.info, true);
-    lv_obj_align(m.info, LV_ALIGN_TOP_MID, 0, 344);
+    m.val = ui_label(scr, &ui_font_big, C_MUTED, "---");
+    lv_obj_align(m.val, LV_ALIGN_TOP_MID, 0, 140);
+    m.unit = ui_label(scr, &ui_font_label_lg, C_MUTED, m.speed_view ? "KM/H" : "RPM");
+    lv_obj_set_style_text_letter_space(m.unit, 5, 0);
+    lv_obj_align(m.unit, LV_ALIGN_TOP_MID, 0, 212);
 
-    m.flags = ui_label(scr, &ui_font_label, C_MUTED, "");
-    lv_label_set_recolor(m.flags, true);
-    lv_obj_set_style_text_letter_space(m.flags, 1, 0);
-    lv_obj_align(m.flags, LV_ALIGN_TOP_MID, 0, 372);
+    char cap[24];
+    const int x0 = -(m.npods - 1) * POD_DX / 2;
+    for (int i = 0; i < m.npods; i++) {
+        const int x = x0 + i * POD_DX;
+        m.pod_cap[i] = ui_label(scr, &ui_font_label, C_MUTED, pod_caption(m.pod_ch[i], cap, sizeof(cap)));
+        lv_obj_set_style_text_letter_space(m.pod_cap[i], 1, 0);
+        lv_obj_align(m.pod_cap[i], LV_ALIGN_TOP_MID, x, 262);
+        m.pod_val[i] = ui_label(scr, &ui_font_value, C_MUTED, "--");
+        lv_obj_align(m.pod_val[i], LV_ALIGN_TOP_MID, x, 282);
+        if (i) {
+            lv_obj_t *div = lv_obj_create(scr);
+            lv_obj_remove_style_all(div);
+            lv_obj_set_size(div, 1, 40);
+            lv_obj_set_style_bg_color(div, C_TILE_BRD, 0);
+            lv_obj_set_style_bg_opa(div, LV_OPA_COVER, 0);
+            lv_obj_align(div, LV_ALIGN_TOP_MID, x - POD_DX / 2, 266);
+        }
+    }
+
+    if (m.has_clt) {
+        // alt boşlukta soldan sağa dolan yay
+        m.clt_arc = lv_arc_create(scr);
+        lv_obj_set_size(m.clt_arc, 408, 408);
+        lv_obj_center(m.clt_arc);
+        lv_obj_set_style_pad_all(m.clt_arc, 0, 0);
+        lv_arc_set_mode(m.clt_arc, LV_ARC_MODE_REVERSE);
+        lv_arc_set_bg_angles(m.clt_arc, 62, 118);
+        lv_arc_set_range(m.clt_arc, CLT_LO, CLT_HI);
+        lv_arc_set_value(m.clt_arc, CLT_LO);
+        lv_obj_remove_style(m.clt_arc, NULL, LV_PART_KNOB);
+        lv_obj_clear_flag(m.clt_arc, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_arc_width(m.clt_arc, 10, LV_PART_MAIN);
+        lv_obj_set_style_arc_color(m.clt_arc, C_TRACK, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(m.clt_arc, 10, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_color(m.clt_arc, C_OK, LV_PART_INDICATOR);
+        m.clt_color = C_OK;
+
+        lv_obj_t *unit;
+        value_row(scr, 336, &ui_font_value, &m.clt_val, &unit, "°C");
+        lv_obj_t *cap_clt = ui_label(scr, &ui_font_label, C_MUTED, "HARARET");
+        lv_obj_set_style_text_letter_space(cap_clt, 3, 0);
+        lv_obj_align(cap_clt, LV_ALIGN_TOP_MID, 0, 368);
+    }
 
     ui_page_dots(scr, page, pages);
-    m.rate_t0 = 0;
-    m.hz = 0;
     return scr;
 }
 
-static void set_rpm_arc(uint16_t rpm)
+static void ind_set(lv_meter_indicator_t *ind, int a, int b)
 {
-    const int rpm_shift = g_settings.shift_rpm;
-    lv_color_t col = rpm >= rpm_shift ? (m.blink ? C_TEXT : C_ALERT) : (rpm >= rpm_shift - 1000 ? C_WARN : C_PRIMARY);
-    if (col.full != m.rpm_color.full) {
-        m.rpm_color = col;
-        m.rpm_arc->type_data.arc.color = col;
+    if (b < a) {
+        a = -2;         // boş aralık: hiçbir segment
+        b = -1;
+    }
+    if (ind->start_value != a) {
+        lv_meter_set_indicator_start_value(m.meter, ind, a);
+    }
+    if (ind->end_value != b) {
+        lv_meter_set_indicator_end_value(m.meter, ind, b);
+    }
+}
+
+/** v: ölçek biriminde değer, -1 = veri yok. */
+static void set_bar(int v, bool blink)
+{
+    v = v > m.max ? m.max : v;
+    const int64_t now = esp_timer_get_time();
+    if (v >= m.peak_v) {
+        m.peak_v = v;
+        m.peak_t = now;
+    } else if (now - m.peak_t > PEAK_HOLD_US) {
+        m.peak_v = m.peak_v - m.step > v ? m.peak_v - m.step : v;      // tutma bitince segment segment iner
+    }
+    ind_set(m.lit[LIT_N], 0, v < m.warn - 1 ? v : m.warn - 1);
+    ind_set(m.lit[LIT_W], m.warn, v < m.red - 1 ? v : m.red - 1);
+    ind_set(m.lit[LIT_R], m.red, v);
+    ind_set(m.red_off, v + 1 > m.red ? v + 1 : m.red, m.max);
+    const int pk = m.peak_v / m.step * m.step;
+    const bool pk_on = v >= 0 && pk > v;
+    ind_set(m.peak, pk_on ? pk : 0, pk_on ? pk : -1);
+
+    const lv_color_t rc = blink ? C_TEXT : C_ALERT;
+    if (rc.full != m.lit[LIT_R]->type_data.scale_lines.color_start.full) {
+        m.lit[LIT_R]->type_data.scale_lines.color_start = rc;
+        m.lit[LIT_R]->type_data.scale_lines.color_end = rc;
         lv_obj_invalidate(m.meter);
-    }
-    int v = rpm / 100;
-    if (v > g_settings.rpm_max / 100) {
-        v = g_settings.rpm_max / 100;
-    }
-    if (m.rpm_arc->end_value != v) {
-        lv_meter_set_indicator_end_value(m.meter, m.rpm_arc, v);
     }
 }
 
@@ -187,88 +286,89 @@ static void set_shift_light(bool on)
     }
 }
 
-void ui_main_update(const vems_data_t *d, bool fresh)
+static void status_update(const vems_data_t *d, bool fresh)
 {
-    char buf[200], v[16];
-
+    char buf[40];
+    const char *txt = "";
+    lv_color_t col = C_MUTED;
     if (!fresh) {
         const vems_state_t st = vems_get_state();
-        const char *wait = st == VEMS_STATE_ECU_OK || st == VEMS_STATE_LINK_UP ? "ECU SORGULANIYOR"
-                           : "OBD ARANIYOR";
-        ui_label_set(m.status, d->seq && st != VEMS_STATE_WAIT_LINK ? LV_SYMBOL_WARNING "  VERİ YOK" : wait);
-        lv_obj_set_style_text_color(m.status, d->seq && st != VEMS_STATE_WAIT_LINK ? C_ALERT : C_WARN, 0);
-        ui_label_set(m.rpm, "----");
-        lv_obj_set_style_text_color(m.rpm, C_MUTED, 0);
-        ui_label_set(m.sub, m.has_speed ? "-- KM/H" : "RPM");
-        lv_obj_set_style_text_color(m.sub, C_MUTED, 0);
-        m.blink = false;
-        set_rpm_arc(0);
-        set_shift_light(false);
-        for (int i = 0; i < m.ntiles; i++) {
-            ui_tile_set(&m.tiles[i], "--", C_MUTED);
-        }
-        ui_label_set(m.info, "");
-        ui_label_set(m.flags, "");
-        m.hz = 0;
-        return;
+        const bool lost = d->seq && st != VEMS_STATE_WAIT_LINK;
+        txt = lost ? LV_SYMBOL_WARNING "  VERİ YOK"
+              : st == VEMS_STATE_ECU_OK || st == VEMS_STATE_LINK_UP ? "ECU SORGULANIYOR" : "OBD ARANIYOR";
+        col = lost ? C_ALERT : C_WARN;
+    } else if (d->mil_on || d->mil_codes > 0) {
+        snprintf(buf, sizeof(buf), LV_SYMBOL_WARNING "  ARIZA · %d KOD", d->mil_codes > 0 ? d->mil_codes : 1);
+        txt = buf;
+        col = d->mil_on ? C_ALERT : C_WARN;
+    } else if (m.has_clt && d->clt_c < CLT_COLD) {
+        txt = "MOTOR SOĞUK";
+        col = C_ACCENT;
     }
+    ui_label_set(m.status, txt);
+    lv_obj_set_style_text_color(m.status, col, 0);
+}
 
-    int64_t now = esp_timer_get_time();
-    if (m.rate_t0 == 0) {
-        m.rate_t0 = now;
-        m.rate_seq0 = d->seq;
-    } else if (now - m.rate_t0 >= 1000000) {
-        m.hz = (int)((d->seq - m.rate_seq0) * 1e6f / (float)(now - m.rate_t0) + 0.5f);
-        m.rate_t0 = now;
-        m.rate_seq0 = d->seq;
+void ui_main_update(const vems_data_t *d, bool fresh)
+{
+    char buf[24];
+    status_update(d, fresh);
+
+    const float rpm = fresh ? d->rpm : NAN;
+    const float spd = fresh && m.has_speed ? d->speed_kmh : NAN;
+    const float v = m.speed_view ? spd : rpm;
+    // vites uyarısı: segmentler, sayı ve çerçeve 5 Hz flaş (saatten türetilir, her güncellemede tutarlı)
+    const bool shift = !isnan(rpm) && rpm >= g_settings.shift_rpm;
+    const bool blink = shift && ((esp_timer_get_time() / 100000) & 1);
+
+    ui_ch_format(m.speed_view ? CH_SPEED : CH_RPM, v, buf, sizeof(buf));
+    ui_label_set(m.val, isnan(v) ? "---" : buf);
+    lv_obj_set_style_text_color(m.val, isnan(v) ? C_MUTED : (blink && !m.speed_view) ? C_ALERT : C_TEXT, 0);
+    set_bar(isnan(v) ? -1 : (int)(m.speed_view ? v : v / 100), blink);
+    set_shift_light(blink);
+    if (isnan(v)) {
+        m.peak_v = -1;
     }
-    vems_link_info_t li;
-    vems_get_link_info(&li);
-    snprintf(buf, sizeof(buf), "%s  |  %d Hz", li.protocol, m.hz);
-    ui_label_set(m.status, buf);
-    lv_obj_set_style_text_color(m.status, C_OK, 0);
-
-    // shift light: arc, number and bezel flash at 5 Hz (sayfa yeni veride de güncellenir, saatten türetilir)
-    const bool shift = d->rpm >= g_settings.shift_rpm;
-    m.blink = shift && ((now / 100000) & 1);
-    snprintf(buf, sizeof(buf), "%u", d->rpm);
-    ui_label_set(m.rpm, buf);
-    lv_obj_set_style_text_color(m.rpm, (shift && m.blink) ? C_ALERT : C_TEXT, 0);
-    set_rpm_arc(d->rpm);
-    set_shift_light(m.blink);
 
     if (m.has_speed) {
-        ui_ch_format(CH_SPEED, d->speed_kmh, v, sizeof(v));
-        snprintf(buf, sizeof(buf), "%s KM/H", v);
-        ui_label_set(m.sub, buf);
-        lv_obj_set_style_text_color(m.sub, isnan(d->speed_kmh) ? C_MUTED : C_TEXT, 0);
+        const float s = m.speed_view ? rpm : spd;
+        ui_ch_format(m.speed_view ? CH_RPM : CH_SPEED, s, buf, sizeof(buf));
+        ui_label_set(m.sec_val, buf);
+        const lv_color_t sc = isnan(s) ? C_MUTED : (m.speed_view && shift) ? C_ALERT : C_SOFT;
+        lv_obj_set_style_text_color(m.sec_val, sc, 0);
     }
 
-    for (int i = 0; i < m.ntiles; i++) {
-        float x = ui_ch_value(d, m.tile_ch[i]);
-        ui_ch_format(m.tile_ch[i], x, v, sizeof(v));
-        ui_tile_set(&m.tiles[i], v, ui_ch_color(m.tile_ch[i], x));
+    for (int i = 0; i < m.npods; i++) {
+        vems_ch_t c = m.pod_ch[i];
+        float x = fresh ? ui_ch_value(d, c) : NAN;
+        if (c == CH_FUEL_L100) {
+            // dururken L/100 km anlamsız: anlık L/saat göster
+            const bool lh = fresh && isnan(x) && m.has_lh;
+            ui_label_set(m.pod_cap[i], lh ? "L/SAAT" : UI_CH[CH_FUEL_L100].caption);
+            if (lh) {
+                c = CH_FUEL_LH;
+                x = ui_ch_value(d, c);
+            }
+        }
+        ui_ch_format(c, x, buf, sizeof(buf));
+        ui_label_set(m.pod_val[i], buf);
+        lv_obj_set_style_text_color(m.pod_val[i], ui_ch_color(c, x), 0);
     }
 
-    buf[0] = '\0';
-    for (int i = 0; i < m.nextra; i++) {
-        char part[48];
-        ui_ch_format(m.extra[i], ui_ch_value(d, m.extra[i]), v, sizeof(v));
-        snprintf(part, sizeof(part), "%s#8A909C %s#  %s", i ? "   " : "", UI_CH[m.extra[i]].caption, v);
-        strlcat(buf, part, sizeof(buf));
+    if (m.has_clt) {
+        const float t = fresh ? d->clt_c : NAN;
+        ui_ch_format(CH_CLT, t, buf, sizeof(buf));
+        ui_label_set(m.clt_val, buf);
+        const lv_color_t col = ui_ch_color(CH_CLT, t);
+        lv_obj_set_style_text_color(m.clt_val, col, 0);
+        const lv_color_t ac = col.full == C_TEXT.full ? C_OK : col;
+        if (ac.full != m.clt_color.full) {
+            m.clt_color = ac;
+            lv_obj_set_style_arc_color(m.clt_arc, ac, LV_PART_INDICATOR);
+        }
+        const int16_t a = isnan(t) ? CLT_LO : (int16_t)t;
+        if (lv_arc_get_value(m.clt_arc) != a) {
+            lv_arc_set_value(m.clt_arc, a);
+        }
     }
-    ui_label_set(m.info, buf);
-
-    char mil[40] = "";
-    if (d->mil_on) {
-        snprintf(mil, sizeof(mil), "#FF3B30 MIL · %d KOD#   ", d->mil_codes);
-    } else if (d->mil_codes > 0) {
-        snprintf(mil, sizeof(mil), "#FFB020 %d KOD#   ", d->mil_codes);
-    }
-    snprintf(buf, sizeof(buf), "%s%s%s%s%s", mil,
-             (d->engine_status & VEMS_ENG_RUNNING) ? "#2ED47A ÇALIŞIYOR#   " : "#4A505C DURUYOR#   ",
-             (d->status1 & 0x04) ? "#2ED47A KAPALI ÇEVRİM#   " : "",
-             (d->engine_status & VEMS_ENG_WARMUP) ? "#00C8FF ISINMA#   " : "",
-             (d->status1 & 0x10) ? "#EE2323 KESME#" : "");
-    ui_label_set(m.flags, buf);
 }

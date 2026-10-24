@@ -1,12 +1,13 @@
 /*
  * LVGL port + screen manager.
  *
- *   boot screen  ->  [ drive | single gauge | all data | vehicle profile | AFR* | fault codes | connection | settings ]
+ *   boot screen  ->  [ drive | single gauge | all data | AFR* | fault codes | settings ]
  *
  * The page set is built from the channels the connected source delivers (AFR only with a wide band
  * lambda) and rebuilt when that set or a layout setting
  * changes. Swipe left / right switches pages; taps belong to the page (single gauge: left / right
  * half = previous / next value), long press resets min / max (single gauge, AFR).
+ * Sürüş sayfasına dokunmak büyük değeri devir <-> hız değiştirir. Uyarılar (ui_alert.c) her sayfanın üstündedir.
  *
  * Rendering is tear-free: LVGL draws full frames straight into the hidden one of the two panel
  * frame buffers and flush swaps them at the end of the scanned-out frame.
@@ -38,7 +39,7 @@ static const char *TAG = "ui";
 #define SLIDE_MS            320
 #define FADE_MS             450
 
-typedef enum { PG_DRIVE, PG_FOCUS, PG_LIST, PG_PROFILE, PG_AFR, PG_DTC, PG_LINK, PG_SETTINGS, PAGE_MAX } page_type_t;
+typedef enum { PG_DRIVE, PG_FOCUS, PG_LIST, PG_AFR, PG_DTC, PG_SETTINGS, PAGE_MAX } page_type_t;
 
 typedef enum { TR_LEFT, TR_RIGHT, TR_FADE } transition_t;
 
@@ -55,7 +56,8 @@ static struct {
     uint32_t layout_mask;       // channels the pages were built for (0 = typical set before the first connection)
     bool rebuild_req;
     bool rescan_req;
-    vems_data_t d;              // latest frame, shared by the update of every page
+    bool dtc_req;
+    vems_data_t d;             // latest frame, shared by the update of every page
     bool fresh;
 } ui;
 
@@ -248,11 +250,9 @@ static lv_obj_t *page_create(page_type_t t, int idx, int count)
     case PG_DRIVE:  return ui_main_create(idx, count, ui.layout_mask);
     case PG_FOCUS:  return ui_focus_create(idx, count, ui.layout_mask);
     case PG_LIST:   return ui_list_create(idx, count, ui.layout_mask);
-    case PG_PROFILE: return ui_profile_create(idx, count);
     case PG_AFR:    return ui_afr_create(idx, count);
     case PG_DTC:    return ui_dtc_create(idx, count);
-    case PG_LINK:   return ui_link_create(idx, count, ui.layout_mask);
-    default:        return ui_settings_create(idx, count);
+    default:       return ui_settings_create(idx, count);
     }
 }
 
@@ -262,10 +262,8 @@ static void page_update(int idx)
     case PG_DRIVE:  ui_main_update(&ui.d, ui.fresh); break;
     case PG_FOCUS:  ui_focus_update(&ui.d, ui.fresh); break;
     case PG_LIST:   ui_list_update(&ui.d, ui.fresh); break;
-    case PG_PROFILE: ui_profile_update(ui.fresh); break;
     case PG_AFR:    ui_afr_update(&ui.d, ui.fresh); break;
     case PG_DTC:    ui_dtc_update(&ui.d, ui.fresh); break;
-    case PG_LINK:   ui_link_update(ui.fresh); break;
     default:        break;
     }
 }
@@ -285,12 +283,10 @@ static void pages_build(void)
     list[n++] = PG_DRIVE;
     list[n++] = PG_FOCUS;
     list[n++] = PG_LIST;
-    list[n++] = PG_PROFILE;
     if (ui.layout_mask & CH_BIT(CH_AFR)) {
         list[n++] = PG_AFR;
     }
     list[n++] = PG_DTC;
-    list[n++] = PG_LINK;
     list[n++] = PG_SETTINGS;
 
     ui.count = n;
@@ -349,6 +345,8 @@ static void page_event_cb(lv_event_t *e)
             show_page(ui.page - 1, TR_RIGHT);
         }
         lv_indev_wait_release(lv_indev_get_act());
+    } else if (code == LV_EVENT_SHORT_CLICKED && t == PG_DRIVE) {
+        ui_main_toggle_view();
     } else if (code == LV_EVENT_SHORT_CLICKED && t == PG_FOCUS) {
         lv_point_t p;
         lv_indev_get_point(lv_indev_get_act(), &p);
@@ -374,16 +372,22 @@ void ui_request_rescan(void)
     ui.rescan_req = true;
 }
 
+void ui_request_dtc_page(void)
+{
+    ui.dtc_req = true;
+}
+
 /** O an ekrandaki sayfanın gösterdiği kanallar, 0 = hepsi (varsayılan sorgu sırası). */
 static uint32_t page_channels(void)
 {
     if (ui.in_splash || ui_busy()) {
         return 0;
     }
+    // hararet her sayfada hızlı turda (0 = varsayılan liste, o da içerir): uyarı gecikmesin
     switch (ui.type[ui.page]) {
-    case PG_DRIVE:  return ui_main_channels();
-    case PG_FOCUS:  return ui_focus_channels();
-    case PG_AFR:    return CH_BIT(CH_AFR) | CH_BIT(CH_TARGET) | CH_BIT(CH_STFT);
+    case PG_DRIVE:  return ui_main_channels() | CH_BIT(CH_CLT);
+    case PG_FOCUS:  return ui_focus_channels() | CH_BIT(CH_CLT);
+    case PG_AFR:    return CH_BIT(CH_AFR) | CH_BIT(CH_TARGET) | CH_BIT(CH_STFT) | CH_BIT(CH_CLT);
     default:        return 0;
     }
 }
@@ -409,6 +413,9 @@ static void ui_update_cb(lv_timer_t *timer)
     const uint32_t mask = vems_get_channels();
     if (ui.fresh) {
         ui_ch_track(&ui.d, mask);
+    }
+    if (!ui.in_splash) {
+        ui_alert_update(&ui.d, ui.fresh, mask);
     }
 
     if (ui.rescan_req && !ui_busy()) {
@@ -443,6 +450,14 @@ static void ui_update_cb(lv_timer_t *timer)
         ui.rebuild_req = false;
         pages_build();
         return;
+    }
+    if (ui.dtc_req && !ui_busy()) {
+        ui.dtc_req = false;
+        for (int i = 0; i < ui.count; i++) {
+            if (ui.type[i] == PG_DTC) {
+                show_page(i, TR_FADE);
+            }
+        }
     }
     page_update(ui.page);
 }
@@ -483,6 +498,7 @@ esp_err_t dash_ui_start(esp_lcd_panel_handle_t panel)
     ui.layout_mask = 0;
     pages_build();
     lv_scr_load(ui_splash_create());
+    ui_alert_init();
     lv_timer_create(ui_update_cb, UI_POLL_MS, NULL);
 
     xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8192, NULL, 4, NULL, 1);

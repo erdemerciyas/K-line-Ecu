@@ -1,5 +1,5 @@
-<!doctype html><html lang="tr"><head><meta charset=utf8><meta name="description" content="Chevrolet / Daewoo Kalos için ESP32-S3 + L9637D K-Line OBD-II bağlantı rehberi: delikli plaket ve breadboard yerleşimi, kablo listesi, süreklilik testi, K-Line ölçüm haritası ve arıza teşhisi."><meta name="keywords" content="K-Line bağlantı, L9637D devre, ESP32 OBD2, Kalos OBD, KWP2000, ISO 9141-2, K inmiyor, OBD-II pin 7"><link rel="canonical" href="https://erdemerciyas.github.io/K-line-Ecu/kalos-k-line-baglanti.html"><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
-<title>Kalos K-Line Bağlantısı · ESP32-S3 + L9637D OBD-II Montaj Rehberi</title>
+<!doctype html><html lang="tr"><head><meta charset=utf8><meta name="description" content="ESP32-S3 + L9637D ile K-Line OBD-II (ISO 9141-2 / KWP2000) bağlantı ve montaj rehberi: delikli plaket ve breadboard yerleşimi, kablo listesi, süreklilik testi, K-Line ölçüm haritası ve arıza teşhisi."><meta name="keywords" content="K-Line bağlantı, L9637D devre, ESP32 OBD2, K-Line OBD montaj, KWP2000, ISO 9141-2, K inmiyor, OBD-II pin 7"><link rel="canonical" href="https://erdemerciyas.github.io/K-line-Ecu/k-line-obd-montaj-rehberi.html"><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>K-Line OBD Montaj Rehberi · ESP32-S3 + L9637D Bağlantısı</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500&display=swap">
 <style>
@@ -92,8 +92,8 @@ code{font-family:var(--mono);font-size:.9em}
 
 <div class="wrap">
 <header>
-  <div class="eyebrow">Chevrolet Kalos 1.4 · 2005 · ISO 14230-4 KWP fast init</div>
-  <h1>Kalos K-Line Bağlantısı</h1>
+  <div class="eyebrow">ESP32-S3 + L9637D · ISO 9141-2 / ISO 14230-4 KWP2000 · örnek araç: Chevrolet Kalos 1.4</div>
+  <h1>K-Line OBD Montaj Rehberi</h1>
   <p class="lede">OBD soketinden Waveshare ESP32-S3-Touch-LCD-2.1 ekran kartına (480×480 yuvarlak dokunmatik ekran): tek L9637D entegresi, bir 78L05 ve hazır bir seviye dönüştürücü modülü. Devre OBD soketinin yanındaki kutuda durur, ekran kartı torpidoda; aralarında 4 telli bir kablo vardır. Kart, <code>USB</code> yazan Type-C'sinden aracın USB şarj aletiyle beslenir. Bütün veriler kartın kendi ekranında görünür. K-Line kartın 4 pinli UART başlığından UART1'i kullanır: TX GPIO44 (başlıkta <code>RXD</code>), RX GPIO43 (başlıkta <code>TXD</code>).</p>
 </header>
 
@@ -639,7 +639,7 @@ code{font-family:var(--mono);font-size:.9em}
 
   <section class="card">
     <h2>Seri logdaki K-Line tanısı</h2>
-    <p>Kalos 1.4, ELM327'de <code>A5</code> protokolüyle bağlanır (ISO 14230-4 KWP fast init). Cihaz önce bunu dener. Başarısız olursa logda <code>src: k-line hızlı init  HATA</code> satırının sonunda sebep yazar. Açılış adımları ve "K inmiyor" gibi tanılar kartın ekranındaki açılış sayfasında da görünür:</p>
+    <p>Cihaz önce ISO 14230-4 KWP hızlı init'i dener, olmazsa 5 baud init'e geçer (örnek araç Kalos 1.4, ELM327'de <code>A5</code> protokolüyle hızlı init ile bağlanır). Başarısız olursa logda <code>src: k-line hızlı init  HATA</code> satırının sonunda sebep yazar. Açılış adımları ve "K inmiyor" gibi tanılar kartın ekranındaki açılış sayfasında da görünür:</p>
     <table>
       <thead><tr><th>Logda</th><th>Anlamı / bakılacak yer</th></tr></thead>
       <tbody>
@@ -710,7 +710,7 @@ code{font-family:var(--mono);font-size:.9em}
   </section>
 
   <section class="card">
-    <h2>Kalos OBD soketi (araçtan)</h2>
+    <h2>OBD soketi · örnek: Kalos (araçtan)</h2>
     <p>Soket araçta 90° dönük durur: sağ sütun yukarıdan aşağı 1→8, sol sütun 9→16. Terminali olan pinler:</p>
     <table>
       <thead><tr><th>Pin</th><th>Görevi</th></tr></thead>

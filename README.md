@@ -9,6 +9,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > 🇹🇷 **Türkçe:** ESP32-S3 ile eski araçlarda (CAN öncesi, K-Line hatlı) OBD-II canlı veri okuma, araç profili ve arıza kodu okuma/silme. Türkçe açıklama için [aşağıya bakın](#türkçe).
+>
+> 📘 **Build guide / Montaj rehberi:** [K-Line OBD Montaj Rehberi](https://erdemerciyas.github.io/K-line-Ecu/k-line-obd-montaj-rehberi.html): perfboard and breadboard layout, wire list, continuity tests, K-Line measurement map (Turkish).
 
 **Keywords:** ESP32 K-Line, ESP32 OBD2, OBD-II K-Line reader, KWP2000 ESP32, ISO 9141-2 ESP32, ISO 14230-4, L9637D ESP32, ELM327 alternative, DIY OBD2 scanner, car ECU live data, DTC reader, check engine light, Chevrolet Kalos OBD, Daewoo Kalos K-Line, ESP-IDF OBD, LVGL car dashboard, Waveshare ESP32-S3-Touch-LCD-2.1.
 
@@ -80,7 +82,7 @@ This project skips the adapter entirely. The ESP32-S3 speaks the K-Line protocol
 | 4-wire cable to the board's UART header | GND, 3V3, TXD, RXD |
 | Car USB charger + USB-C cable | powers the screen board |
 
-A full step-by-step build guide (perfboard layout, breadboard layout, wire list, continuity tests and a measurement map for "K-Line does not go low") is in [`docs/kalos-k-line-baglanti.html`](docs/kalos-k-line-baglanti.html) (Turkish).
+A full step-by-step build guide (perfboard layout, breadboard layout, wire list, continuity tests and a measurement map for "K-Line does not go low") is in [`docs/k-line-obd-montaj-rehberi.html`](https://erdemerciyas.github.io/K-line-Ecu/k-line-obd-montaj-rehberi.html) (Turkish).
 
 ## Wiring
 
@@ -192,7 +194,7 @@ Most display settings can also be changed on the device (Settings page) and are 
 | `C1 yok` after fast init, slow init OK | normal for ISO 9141-2 cars |
 | Value shows `--` | the ECU does not support that PID (check the **Vehicle profile** page) |
 
-A complete measurement walkthrough with points 1–7 is in the [build guide](docs/kalos-k-line-baglanti.html).
+A complete measurement walkthrough with points 1–7 is in the [build guide](https://erdemerciyas.github.io/K-line-Ecu/k-line-obd-montaj-rehberi.html).
 
 ## Safety
 
@@ -226,7 +228,7 @@ main/
   ui_*.c           pages: splash, main, focus, list, profile, afr, dtc, link, settings
   settings.c       NVS-backed user settings
 docs/
-  kalos-k-line-baglanti.html   hardware build guide (Turkish)
+  k-line-obd-montaj-rehberi.html   hardware build guide (Turkish)
 components/lvgl    LVGL 8.2 (MIT)
 ```
 
@@ -256,7 +258,7 @@ Bu proje, **CAN hattı olmayan eski araçlarda** (çoğunlukla 2001–2008 aras�
 - 1N4005 diyot, 510 Ω çekme direnci, 100 nF kondansatörler,
 - kablolu OBD-II erkek fiş.
 
-Delikli plaket ve breadboard yerleşimi, kablo listesi, süreklilik testleri ve "K inmiyor" ölçüm haritası için [Türkçe montaj rehberine](docs/kalos-k-line-baglanti.html) bakın.
+Delikli plaket ve breadboard yerleşimi, kablo listesi, süreklilik testleri ve "K inmiyor" ölçüm haritası için [Türkçe montaj rehberine](https://erdemerciyas.github.io/K-line-Ecu/k-line-obd-montaj-rehberi.html) bakın.
 
 **Bağlantı özeti:**
 - Kartın UART başlığında **RXD = GPIO44 = K TX** (seviye dönüştürücü LV1) ve **TXD = GPIO43 = K RX** (LV2). Yazılar çapraz!

@@ -1,0 +1,98 @@
+menu "K-Line OBD"
+
+    menu "OBD-II K-Line"
+
+        config VEMS_OBD_KLINE_UART_PORT
+            int "K-Line UART port numarasi"
+            range 1 2
+            default 1
+
+        config VEMS_OBD_KLINE_TX_GPIO
+            int "K-Line TX GPIO -> L9637D TX (UART basligi RXD / GPIO44)"
+            default 44
+            help
+                Waveshare ESP32-S3-Touch-LCD-2.1'de disariya acik serbest pinler sadece UART basligi
+                (GPIO43/44). Baslik yazilari capraz: RXD = GPIO44 = bizim TX. GPIO44 acilista giris
+                oldugu icin K hatti bosta kalir. "UART" Type-C takiliyken kart uzerindeki anahtar bu
+                pinleri CH343'e verir: K-Line calismaz, kart "USB" Type-C'den beslenmeli.
+
+        config VEMS_OBD_KLINE_RX_GPIO
+            int "K-Line RX GPIO <- L9637D RX (UART basligi TXD / GPIO43)"
+            default 43
+
+        config VEMS_ENGINE_CC
+            int "Motor hacmi (cc), MAF yoksa yakit tuketimi tahmini icin"
+            range 500 8000
+            default 1399
+            help
+                Kalos 1.4 16V (F14D3) = 1399 cc. MAF sensoru olmayan araclarda tuketim MAP, emme havasi
+                ve devirden hesaplanir (hiz-yogunluk, dolum verimi %80 varsayilir).
+
+    endmenu
+
+    config VEMS_PRINT_INTERVAL_MS
+        int "Konsola yazdirma araligi (ms, 0 = kapali)"
+        range 0 10000
+        default 250
+
+    config VEMS_PRINT_JSON
+        bool "Canli veriyi JSON satiri olarak da yazdir"
+        default n
+
+    config VEMS_UI_ENABLE
+        bool "Waveshare 2.1\" yuvarlak ekranda gosterge paneli"
+        default y
+        help
+            Waveshare ESP32-S3-Touch-LCD-2.1 karti icin.
+
+    config VEMS_UI_RPM_MAX
+        int "Devir gostergesi maksimum (RPM)"
+        depends on VEMS_UI_ENABLE
+        range 4000 12000
+        default 8000
+
+    config VEMS_UI_RPM_SHIFT
+        int "Kirmizi bolge / vites uyari devri (RPM)"
+        depends on VEMS_UI_ENABLE
+        range 2000 12000
+        default 6500
+
+    config VEMS_UI_BACKLIGHT
+        int "Ekran parlakligi (%)"
+        depends on VEMS_UI_ENABLE
+        range 5 100
+        default 80
+
+    choice VEMS_UI_FUEL
+        prompt "Yakit tipi (AFR = lambda x stokiyometrik)"
+        depends on VEMS_UI_ENABLE
+        default VEMS_UI_FUEL_GASOLINE
+
+        config VEMS_UI_FUEL_GASOLINE
+            bool "Benzin (14.7)"
+        config VEMS_UI_FUEL_E85
+            bool "E85 (9.8)"
+        config VEMS_UI_FUEL_LPG
+            bool "LPG (15.5)"
+        config VEMS_UI_FUEL_METHANOL
+            bool "Metanol (6.4)"
+    endchoice
+
+    config VEMS_UI_SPLASH_MIN_MS
+        int "Acilis ekrani minimum suresi (ms)"
+        depends on VEMS_UI_ENABLE
+        range 0 10000
+        default 2500
+
+    config VEMS_UI_SPLASH_TIMEOUT_MS
+        int "ECU bulunamazsa acilis ekranindan cikis (ms)"
+        depends on VEMS_UI_ENABLE
+        range 2000 60000
+        default 12000
+
+    config VEMS_UI_BOOT_BEEP
+        bool "Acilista buzzer melodisi (yaris baslangic isiklari)"
+        depends on VEMS_UI_ENABLE
+        default y
+
+endmenu

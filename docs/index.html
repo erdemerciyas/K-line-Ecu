@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K-Line ECU Reader · ESP32-S3 OBD-II K-Line (KWP2000 / ISO 9141-2) Live Data & DTC Scanner</title>
+<meta name="description" content="Open-source ESP32-S3 OBD-II K-Line diagnostic tool for older cars: ISO 9141-2 and ISO 14230-4 KWP2000 with an L9637D, live engine data, a full vehicle PID profile and reading/clearing trouble codes (DTC) on a 2.1 inch round touch screen. No ELM327 needed.">
+<meta name="keywords" content="ESP32 K-Line, ESP32 OBD2, OBD-II K-Line reader, KWP2000, ISO 9141-2, ISO 14230-4, L9637D, ELM327 alternative, DIY OBD2 scanner, DTC reader, car ECU live data, ESP-IDF, LVGL, Waveshare ESP32-S3-Touch-LCD-2.1, Chevrolet Kalos OBD, Daewoo Kalos K-Line, K-Line arıza kodu okuma, OBD2 canlı veri">
+<meta name="author" content="Erdem Erciyas">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://erdemerciyas.github.io/K-line-Ecu/">
+<meta name="theme-color" content="#0b0d11">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="K-Line ECU Reader: ESP32-S3 OBD-II K-Line live data & DTC scanner">
+<meta property="og:description" content="Talk to your car's ECU over the K-Line (KWP2000 / ISO 9141-2) with an ESP32-S3 and an L9637D. Live data, vehicle profile and trouble codes on a round touch screen.">
+<meta property="og:url" content="https://erdemerciyas.github.io/K-line-Ecu/">
+<meta property="og:site_name" content="K-Line ECU Reader">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="tr_TR">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="K-Line ECU Reader · ESP32-S3 OBD-II K-Line">
+<meta name="twitter:description" content="ESP32-S3 + L9637D K-Line diagnostics: live data, full PID profile, DTC read/clear. Open source, MIT.">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "K-Line ECU Reader",
+  "description": "ESP32-S3 firmware that reads OBD-II data over the K-Line (ISO 9141-2, ISO 14230-4 KWP2000) through an L9637D transceiver and shows live engine data, the vehicle PID profile and trouble codes on a 480x480 round touch screen.",
+  "codeRepository": "https://github.com/erdemerciyas/K-line-Ecu",
+  "url": "https://erdemerciyas.github.io/K-line-Ecu/",
+  "programmingLanguage": "C",
+  "runtimePlatform": "ESP-IDF v5.3, ESP32-S3",
+  "license": "https://opensource.org/licenses/MIT",
+  "author": {"@type": "Person", "name": "Erdem Erciyas", "url": "https://github.com/erdemerciyas"},
+  "keywords": "ESP32, K-Line, OBD-II, OBD2, KWP2000, ISO 9141-2, ISO 14230-4, L9637D, ECU, DTC, LVGL, car diagnostics",
+  "inLanguage": ["en", "tr"]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "Can an ESP32 read OBD-II without an ELM327?",
+     "acceptedAnswer": {"@type": "Answer", "text": "Yes. With an L9637D K-Line transceiver the ESP32 UART drives the K-Line directly. This project implements the ISO 9141-2 and ISO 14230-4 KWP2000 fast and 5-baud init and the request cycle itself."}},
+    {"@type": "Question", "name": "Which cars use the K-Line?",
+     "acceptedAnswer": {"@type": "Answer", "text": "Many European and Asian petrol cars built roughly between 2001 and 2008 that have OBD-II pin 7 (K-Line) and no CAN on pins 6 and 14. Tested on a Chevrolet / Daewoo Kalos 1.4 16V."}},
+    {"@type": "Question", "name": "How fast is OBD-II over K-Line?",
+     "acceptedAnswer": {"@type": "Answer", "text": "About 7 requests per second at 10400 baud, because ISO 14230-4 requires at least 55 ms between an answer and the next request. The firmware prioritises the values shown on screen."}},
+    {"@type": "Question", "name": "Can it read and clear trouble codes?",
+     "acceptedAnswer": {"@type": "Answer", "text": "Yes. It reads stored DTCs (service 03) with descriptions and clears codes and the check engine light (service 04) after a two-tap confirmation, only with the engine stopped."}}
+  ]
+}
+</script>
+<style>
+:root{--bg:#f6f7f9;--fg:#14171c;--mut:#5b6270;--card:#fff;--line:#e2e5ea;--acc:#1f7fe0;--code:#eef1f5}
+@media (prefers-color-scheme:dark){:root{--bg:#0b0d11;--fg:#eef0f3;--mut:#9aa1ad;--card:#12151b;--line:#22262e;--acc:#2d9cff;--code:#171b22}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:clamp(26px,5vw,38px);line-height:1.2;margin:0 0 12px}
+h2{font-size:22px;margin:40px 0 10px}
+p.lead{font-size:18px;color:var(--mut);margin:0 0 20px}
+a{color:var(--acc)}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0 8px}
+.btn{display:inline-block;padding:10px 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);text-decoration:none;font-weight:600}
+.btn.p{background:var(--acc);border-color:var(--acc);color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card h3{margin:0 0 6px;font-size:16px}
+.card p{margin:0;color:var(--mut);font-size:15px}
+table{width:100%;border-collapse:collapse;font-size:15px;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow-x:auto;font-size:13.5px}
+.tr{border-left:3px solid var(--acc);padding-left:14px}
+footer{margin-top:48px;color:var(--mut);font-size:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1>K-Line ECU Reader: ESP32-S3 OBD-II K-Line live data &amp; DTC scanner</h1>
+  <p class="lead">An open-source diagnostic tool for older cars without CAN. An ESP32-S3 with a 2.1" round touch screen talks to the engine ECU over the <strong>K-Line</strong> (ISO 9141-2 / ISO 14230-4 KWP2000) through an <strong>L9637D</strong>. It shows live data and the full vehicle PID profile, and reads and clears trouble codes. No ELM327, no phone, no app.</p>
+  <div class="btns">
+    <a class="btn p" href="https://github.com/erdemerciyas/K-line-Ecu">Source code on GitHub</a>
+    <a class="btn" href="kalos-k-line-baglanti.html">Hardware build guide (TR)</a>
+  </div>
+
+  <h2>Features</h2>
+  <div class="grid">
+    <div class="card"><h3>Native K-Line stack</h3><p>KWP2000 fast init, 5-baud init for ISO 9141-2 and KWP2000, automatic protocol detection with line diagnostics.</p></div>
+    <div class="card"><h3>Full vehicle profile</h3><p>Every supported SAE J1979 mode 01 PID (01–5F) with name, unit, live value and refresh interval.</p></div>
+    <div class="card"><h3>Trouble codes</h3><p>Read stored DTCs with descriptions. Clear codes and the check engine light with a two-tap confirmation.</p></div>
+    <div class="card"><h3>Screen-aware polling</h3><p>The values you are looking at are polled first. Silent PIDs drop out, and static ones are read once.</p></div>
+    <div class="card"><h3>Fuel consumption</h3><p>L/h and L/100 km from PID 5E, from MAF, or by speed-density from MAP, IAT and RPM.</p></div>
+    <div class="card"><h3>Low-latency display</h3><p>LVGL on a 480×480 RGB panel with double frame buffers. It redraws as soon as the ECU answers.</p></div>
+  </div>
+
+  <h2>Supported protocols</h2>
+  <table>
+    <tr><th>Protocol</th><th>Standard</th><th>Init</th></tr>
+    <tr><td>KWP2000</td><td>ISO 14230-4</td><td>fast init, 5-baud init</td></tr>
+    <tr><td>ISO 9141-2</td><td>ISO 9141-2</td><td>5-baud init</td></tr>
+  </table>
+  <p>Tested on a Chevrolet / Daewoo Kalos 1.4 16V. It should work on any car with OBD-II pin 7 (K-Line) and no CAN, which covers many petrol cars built roughly between 2001 and 2008.</p>
+
+  <h2>Hardware</h2>
+  <table>
+    <tr><th>Part</th><th>Role</th></tr>
+    <tr><td>Waveshare ESP32-S3-Touch-LCD-2.1</td><td>MCU, 480×480 round touch screen, 8 MB PSRAM</td></tr>
+    <tr><td>L9637D</td><td>K-Line transceiver (12 V bus side)</td></tr>
+    <tr><td>Logic level shifter</td><td>3.3 V ↔ 5 V between the ESP and the L9637D</td></tr>
+    <tr><td>L78L05, 1N4005, 510 Ω, 2 × 100 nF</td><td>5 V supply, protection, K pull-up, decoupling</td></tr>
+    <tr><td>OBD-II plug</td><td>pins 4/5 GND, 7 K-Line, 16 +12 V</td></tr>
+  </table>
+  <p>K TX is GPIO44 (the header's <em>RXD</em>) and K RX is GPIO43 (the header's <em>TXD</em>). Power and flash through the "USB" USB-C port, and keep the "UART" USB-C port unplugged.</p>
+
+  <h2>Build</h2>
+<pre>git clone https://github.com/erdemerciyas/K-line-Ecu.git
+cd K-line-Ecu
+idf.py set-target esp32s3
+idf.py build
+idf.py -p COMx flash monitor</pre>
+
+  <h2>How fast is K-Line?</h2>
+  <p>At 10400 baud, with a 55 ms minimum gap between an answer and the next request (ISO 14230-4), each PID takes about 130–150 ms. That is about <strong>7 requests per second</strong>. The firmware spends them on the values on screen; a single gauge refreshes about every 0.3 s.</p>
+
+  <section class="tr" lang="tr">
+    <h2>Türkçe: ESP32 ile K-Line OBD-II okuyucu</h2>
+    <p>CAN hattı olmayan eski araçlarda (çoğunlukla 2001–2008 arası benzinli modeller) OBD-II soketinin 7. pinindeki K-Line üzerinden motor beynine doğrudan bağlanan açık kaynak bir proje. ESP32-S3 ve L9637D ile <strong>canlı veri</strong>, <strong>araç profili</strong> (desteklenen bütün PID'ler ve yenilenme süreleri) ve <strong>arıza kodu okuma/silme</strong> yapar. Bütün veriler 2.1" yuvarlak dokunmatik ekranda görünür; ELM327 gerekmez. Chevrolet / Daewoo Kalos 1.4 16V'de denendi. Montaj için <a href="kalos-k-line-baglanti.html">Türkçe montaj rehberine</a> bakın.</p>
+  </section>
+
+  <footer>MIT License © 2026 Erdem Erciyas · <a href="https://github.com/erdemerciyas/K-line-Ecu">github.com/erdemerciyas/K-line-Ecu</a></footer>
+</main>
+</body>
+</html>

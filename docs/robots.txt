@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://erdemerciyas.github.io/K-line-Ecu/sitemap.xml

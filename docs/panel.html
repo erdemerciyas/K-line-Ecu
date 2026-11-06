@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<title>K-Line OBD</title>
+<style>
+/* Telefon paneli: Android Chrome + Web Bluetooth. Harici font/kütüphane yok, çevrimdışı da açılır (panel-sw.js). Araçta okunacak koyu tema. */
+:root{--bg:#0b0d10;--panel:#14181d;--line:#232a32;--fg:#eef1f4;--mut:#8b95a1;--acc:#36c3ff;--ok:#3ddc84;--warn:#ffb020;--bad:#ff4d4d}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+.wrap{max-width:560px;margin:0 auto;padding:12px 14px calc(20px + env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+h1{font-size:17px;letter-spacing:.12em;margin:0}
+.pill{font-size:12px;font-weight:600;padding:4px 10px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px}
+.tabs button,.btn{font:600 14px system-ui,sans-serif;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;cursor:pointer}
+.tabs button[aria-pressed=true]{border-color:var(--acc);color:var(--acc)}
+.hero{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;grid-template-columns:1.3fr 1fr;gap:8px;align-items:end}
+.big{font:700 64px/1 ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.unit{font-size:13px;color:var(--mut);letter-spacing:.1em}
+.spd{text-align:right}.spd .big{font-size:48px}
+.bar{grid-column:1/-1;height:12px;border-radius:6px;background:#1d232a;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),#7be0ff);transition:width .1s linear}
+.bar.shift i{background:var(--bad)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.tile b{display:block;font-size:11px;color:var(--mut);letter-spacing:.1em;font-weight:600}
+.tile span{font:700 26px/1.2 ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
+.tile small{color:var(--mut);margin-left:4px}
+.tile.warn span{color:var(--warn)}.tile.bad span{color:var(--bad)}
+.log{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:10px;font:13px/1.7 ui-monospace,Consolas,monospace}
+.log div{display:flex;justify-content:space-between;gap:10px}
+.s1{color:var(--ok)}.s2{color:var(--mut)}.s3{color:var(--bad)}.s0{color:var(--warn)}
+.meta{color:var(--mut);font-size:12px;margin-top:10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.row{display:flex;gap:8px;margin-top:10px}.row .btn{flex:1}
+.codes{display:grid;gap:6px;margin-top:10px}
+.code{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;font:700 22px ui-monospace,Consolas,monospace;letter-spacing:.06em}
+.msg{color:var(--mut);margin-top:10px}
+.conn{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 18px;text-align:center;display:grid;gap:12px;margin-bottom:12px}
+.conn .btn{background:var(--acc);color:#04222f;border:0;font-size:17px;padding:14px}
+.conn p{margin:0;color:var(--mut)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>K-LINE OBD</h1><span id="st" class="pill" style="color:var(--mut)">BAĞLI DEĞİL</span></header>
+  <div class="conn" id="conn">
+    <button class="btn" id="connect">Bluetooth ile bağlan</button>
+    <p id="cmsg">Kart açıkken dokun, listeden <b>K-Line-OBD</b>'yi seç.</p>
+  </div>
+  <div class="tabs"><button id="tLive" aria-pressed="true">CANLI VERİ</button><button id="tDtc" aria-pressed="false">ARIZA KODLARI</button></div>
+
+  <section id="live">
+    <div class="hero">
+      <div><div class="unit">DEVİR · RPM</div><div class="big" id="rpm">--</div></div>
+      <div class="spd"><div class="unit">HIZ · KM/H</div><div class="big" id="spd">--</div></div>
+      <div class="bar" id="bar"><i></i></div>
+    </div>
+    <div class="tiles" id="tiles"></div>
+    <div class="log" id="log" hidden></div>
+    <div class="row"><button class="btn" id="rescan">Yeniden ara</button></div>
+    <div class="meta"><span id="proto"></span><span id="stats"></span></div>
+  </section>
+
+  <section id="dtc" hidden>
+    <div class="row"><button class="btn" id="read">Kodları oku</button><button class="btn" id="clear">Kodları sil</button></div>
+    <p class="msg" id="dmsg">Kontak açık, ECU bağlıyken oku.</p>
+    <div class="codes" id="codes"></div>
+  </section>
+</div>
+<script>
+// [anahtar, başlık, birim, uyarı(v) -> '', 'warn', 'bad']
+const T=[
+ ['clt','HARARET','°C',v=>v>=110?'bad':v>=100?'warn':''],
+ ['bat','AKÜ','V',v=>v<11.5?'bad':v<12.2?'warn':''],
+ ['map','MAP','kPa'],['tps','GAZ','%'],['load','YÜK','%'],['iat','EMME','°C'],
+ ['adv','AVANS','°'],['afr','AFR',''],['o2','O2','V'],['o2b','O2 ARKA','V'],
+ ['stft','KISA DÜZ.','%'],['ltft','UZUN DÜZ.','%'],['maf','MAF','g/s'],
+ ['l100','TÜKETİM','L/100'],['lh','AKIŞ','L/sa'],['oil','YAĞ','°C'],['fuel','YAKIT','%']];
+const $=id=>document.getElementById(id);
+const tiles={};
+for(const [k,n,u] of T){const d=document.createElement('div');d.className='tile';d.hidden=true;
+ d.innerHTML=`<b>${n}</b><span>--</span><small>${u}</small>`;$('tiles').appendChild(d);tiles[k]=d;}
+const RPM_MAX=8000,RPM_SHIFT=6500;
+const ST={ok:['ECU BAĞLI','var(--ok)'],link:['PID TARANIYOR','var(--acc)'],wait:['PROTOKOL ARANIYOR','var(--warn)'],stopped:['BAŞLAMADI','var(--mut)']};
+let logLines=[],state='';
+
+function pill(t,c){$('st').textContent=t;$('st').style.color=c;}
+function live(j){
+  state=j.state;const s=ST[j.state]||ST.stopped;pill(s[0],s[1]);
+  $('rpm').textContent=j.rpm==null?'--':Math.round(j.rpm);
+  $('spd').textContent=j.spd==null?'--':Math.round(j.spd);
+  const r=j.rpm||0;$('bar').firstChild.style.width=Math.min(100,r/RPM_MAX*100)+'%';$('bar').classList.toggle('shift',r>=RPM_SHIFT);
+  for(const [k,,,w] of T){const t=tiles[k],v=j[k];t.hidden=v==null;if(v==null)continue;
+   t.querySelector('span').textContent=v;t.className='tile '+(w?w(v):'');}
+  $('proto').textContent=[j.proto,j.ecu].filter(Boolean).join(' · ');
+  $('stats').textContent=(j.mil?'MIL YANIYOR · ':'')+`ok ${j.ok} · zaman aşımı ${j.to}`+(j.age!=null?` · ${j.age} ms`:'');
+  drawLog();
+}
+// açılış adımları: ECU bulunana kadar
+function drawLog(){
+  const L=$('log');L.hidden=state==='ok'||!logLines.length;
+  if(!L.hidden)L.innerHTML=logLines.map(l=>`<div><span>› ${esc(l[0])}</span><span class="s${l[2]}">${esc(l[1])}</span></div>`).join('');
+}
+function esc(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function dtc(j){
+  if(j.n<0)$('dmsg').textContent='ECU cevap vermedi. Bağlantıyı kontrol et.';
+  else if(j.n===0)$('dmsg').textContent='Kayıtlı arıza kodu yok.';
+  else{$('dmsg').textContent=j.n+' kod bulundu:';$('codes').innerHTML=j.codes.map(c=>`<div class="code">${c}</div>`).join('');}
+}
+function msg(j){
+  if(j.t==='live')live(j);
+  else if(j.t==='log'){logLines=j.log;drawLog();}
+  else if(j.t==='dtc')dtc(j);
+  else if(j.t==='clear'){$('dmsg').textContent=j.ok?'Silindi.':'ECU silmeyi onaylamadı.';if(j.ok)$('codes').innerHTML='';}
+}
+
+// ---- Bluetooth (BLE): kart satır sonu ile biten JSON mesajları gönderir, MTU'ya göre parçalı gelebilir
+const SVC='4b4c0001-0b5e-4e1a-9a7d-6f62642d6b6c',STREAM='4b4c0002-0b5e-4e1a-9a7d-6f62642d6b6c',CMD='4b4c0003-0b5e-4e1a-9a7d-6f62642d6b6c';
+let dev=null,cmdChr=null,rx='',dec=new TextDecoder();
+function onData(e){
+  rx+=dec.decode(e.target.value,{stream:true});
+  let i;while((i=rx.indexOf('\n'))>=0){const line=rx.slice(0,i);rx=rx.slice(i+1);try{msg(JSON.parse(line));}catch(_){}}
+}
+async function attach(){
+  pill('BAĞLANIYOR','var(--acc)');
+  const srv=await dev.gatt.connect();
+  const svc=await srv.getPrimaryService(SVC);
+  cmdChr=await svc.getCharacteristic(CMD);
+  const st=await svc.getCharacteristic(STREAM);
+  rx='';dec=new TextDecoder();
+  st.addEventListener('characteristicvaluechanged',onData);
+  await st.startNotifications();
+  $('conn').hidden=true;
+}
+async function reconnect(){
+  cmdChr=null;pill('KART YOK','var(--bad)');
+  for(let d=1000;dev&&!dev.gatt.connected;d=Math.min(d*2,8000)){
+    try{await attach();return;}catch(_){await new Promise(r=>setTimeout(r,d));}
+  }
+}
+async function connect(){
+  try{
+    dev=await navigator.bluetooth.requestDevice({filters:[{services:[SVC]}]});
+    dev.addEventListener('gattserverdisconnected',reconnect);
+    await attach();
+  }catch(e){$('cmsg').textContent='Bağlanılamadı: '+e.message;pill('BAĞLI DEĞİL','var(--mut)');}
+}
+async function send(c){if(!cmdChr)return false;try{await cmdChr.writeValue(new TextEncoder().encode(c));return true;}catch(_){return false;}}
+if(!navigator.bluetooth){$('connect').disabled=true;$('cmsg').textContent='Bu tarayıcı Bluetooth desteklemiyor. Android\'de Chrome ile aç.';}
+$('connect').onclick=connect;
+
+function tab(l){$('live').hidden=!l;$('dtc').hidden=l;$('tLive').setAttribute('aria-pressed',l);$('tDtc').setAttribute('aria-pressed',!l);}
+$('tLive').onclick=()=>tab(true);$('tDtc').onclick=()=>tab(false);
+$('rescan').onclick=()=>send('rescan');
+$('read').onclick=async()=>{$('codes').innerHTML='';$('dmsg').textContent=await send('dtc')?'Okunuyor...':'Karta bağlı değil.';};
+$('clear').onclick=async()=>{
+  if(!confirm('Arıza kodları ve motor arıza lambası silinsin mi? Motor çalışmıyorken, kontak açıkken yap.'))return;
+  $('dmsg').textContent=await send('clear')?'Siliniyor...':'Karta bağlı değil.';
+};
+if('serviceWorker' in navigator)navigator.serviceWorker.register('panel-sw.js').catch(()=>{});
+</script>
+</body>
+</html>

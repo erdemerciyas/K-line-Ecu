@@ -109,7 +109,7 @@ void ui_focus_update(const vems_data_t *d, bool fresh)
     ui_ch_format(c, x, buf, sizeof(buf));
     ui_label_set(f.value, buf);
     const lv_color_t col = ui_ch_color(c, x);
-    lv_obj_set_style_text_color(f.value, col, 0);
+    ui_text_color(f.value, col);
 
     if (c == CH_AFR || c == CH_TARGET) {
         ui_label_set(f.unit, ui_fuel_name());

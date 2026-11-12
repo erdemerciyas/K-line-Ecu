@@ -154,9 +154,9 @@ void ui_afr_update(const vems_data_t *d, bool fresh)
 
     if (!fresh || !ui_lambda_valid(d)) {
         ui_label_set(a.afr, "--.-");
-        lv_obj_set_style_text_color(a.afr, C_MUTED, 0);
+        ui_text_color(a.afr, C_MUTED);
         ui_label_set(a.zone, fresh ? "SENSÖR HAZIR DEĞİL" : "VERİ YOK");
-        lv_obj_set_style_text_color(a.zone, fresh ? C_WARN : C_ALERT, 0);
+        ui_text_color(a.zone, fresh ? C_WARN : C_ALERT);
         ui_tile_set(&a.tiles[T_LAMBDA], "--", C_MUTED);
         ui_tile_set(&a.tiles[T_DELTA], "--", C_MUTED);
         set_marker(a.scale_min, false);
@@ -169,9 +169,9 @@ void ui_afr_update(const vems_data_t *d, bool fresh)
 
     snprintf(buf, sizeof(buf), "%.1f", afr);
     ui_label_set(a.afr, buf);
-    lv_obj_set_style_text_color(a.afr, zc, 0);
+    ui_text_color(a.afr, zc);
     ui_label_set(a.zone, z->name);
-    lv_obj_set_style_text_color(a.zone, zc, 0);
+    ui_text_color(a.zone, zc);
     set_marker(afr_to_scale(afr), true);
 
     snprintf(buf, sizeof(buf), "%.2f", d->lambda);

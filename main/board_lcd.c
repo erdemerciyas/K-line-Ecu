@@ -360,3 +360,8 @@ esp_err_t board_lcd_init(esp_lcd_panel_handle_t *out_panel)
     ESP_LOGI(TAG, "ST7701S 480x480 RGB panel ready");
     return ESP_OK;
 }
+
+i2c_master_bus_handle_t board_i2c_bus(void)
+{
+    return s_i2c;
+}

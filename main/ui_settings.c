@@ -7,6 +7,8 @@
 #include "sdkconfig.h"
 #include "board_lcd.h"
 #include "ui_priv.h"
+#include "imu.h"
+#include "esp_timer.h"
 #if CONFIG_VEMS_BLE_PANEL
 #include "ble_panel.h"
 #define HAS_BLE 1
@@ -15,8 +17,9 @@
 #endif
 
 typedef enum {
-    ID_VIEW, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_RPMMAX, ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_BLE,
-    ID_RESCAN, ID_RESET, ID_VER, ID_COUNT
+    ID_GAUGE, ID_VIEW, ID_GEAR, ID_ACCENT, ID_DIG1, ID_DIG2, ID_DIG3, ID_DIG4, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_RPMMAX,
+    ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_BLE, ID_INCL, ID_INCL_WARN, ID_INCL_CAL, ID_RESCAN, ID_RESET, ID_VER,
+    ID_COUNT
 } set_id_t;
 typedef enum { T_RANGE, T_ENUM, T_ACTION, T_INFO } row_type_t;
 
@@ -27,7 +30,15 @@ typedef struct {
 } row_def_t;
 
 static const row_def_t ROWS[ID_COUNT] = {
+    [ID_GAUGE]  = {"Gösterge tipi",  T_ENUM},
     [ID_VIEW]   = {"Ana gösterge",   T_ENUM},
+    [ID_GEAR]   = {"Büyük vites",    T_ENUM},
+    [ID_ACCENT] = {"Vurgu rengi",    T_ENUM},
+    // dijital kutucuklar: - / + ile seçilebilen veri listesinde gezilir
+    [ID_DIG1]   = {"Dijital kutu 1", T_RANGE, 0, 0, 1},
+    [ID_DIG2]   = {"Dijital kutu 2", T_RANGE, 0, 0, 1},
+    [ID_DIG3]   = {"Dijital kutu 3", T_RANGE, 0, 0, 1},
+    [ID_DIG4]   = {"Dijital kutu 4", T_RANGE, 0, 0, 1},
     [ID_BRIGHT] = {"Parlaklık",      T_RANGE, 5, 100, 5},
     [ID_ROTATE] = {"Ekran açısı",    T_RANGE, 0, 359, 1},
     [ID_SHIFT]  = {"Vites uyarısı",  T_RANGE, 3000, 9500, 100},
@@ -39,12 +50,16 @@ static const row_def_t ROWS[ID_COUNT] = {
     [ID_BATT]   = {"Akü alt sınırı", T_RANGE, 105, 125, 1},
     [ID_BEEP]   = {"Açılış sesi",    T_ENUM},
     [ID_BLE]    = {"Telefon (BLE)",  T_ENUM},
+    [ID_INCL]   = {"Eğim sayfası",   T_ENUM},
+    [ID_INCL_WARN] = {"Yan yatma uyarısı", T_RANGE, 10, 45, 1},
+    [ID_INCL_CAL] = {"Eğim kalibrasyonu", T_ACTION},
     [ID_RESCAN] = {"Bağlantı",       T_ACTION},
     [ID_RESET]  = {"Varsayılanlar",  T_ACTION},
     [ID_VER]    = {"Sürüm",          T_INFO},
 };
 
 static const int RPM_MAX_OPTS[] = {6000, 7000, 8000, 9000, 10000};
+#define CAL_ARM_US  (3000 * 1000)   // kalibrasyonu onaylamak için ikinci dokunuşun süresi
 #define ENUM_MAX    6
 
 static struct {
@@ -56,12 +71,27 @@ static struct {
     lv_obj_t *ed_opt[ENUM_MAX];
     set_id_t id;
     int v;                  // value being edited
+    int64_t cal_arm;        // eğim kalibrasyonu: ilk dokunuş, onay bekleniyor
 } s;
 
 static int get_val(set_id_t id)
 {
     switch (id) {
+    case ID_GAUGE:  return g_settings.gauge;
     case ID_VIEW:   return g_settings.main_view;
+    case ID_GEAR:   return g_settings.gear_big;
+    case ID_ACCENT: return g_settings.accent;
+    case ID_DIG1:
+    case ID_DIG2:
+    case ID_DIG3:
+    case ID_DIG4:   return g_settings.dig_ch[id - ID_DIG1];
+    case ID_INCL:   return g_settings.incl_page;
+    case ID_INCL_WARN: return g_settings.incl_warn;
+    case ID_INCL_CAL:
+        if (s.cal_arm && esp_timer_get_time() - s.cal_arm < CAL_ARM_US) {
+            return 2;
+        }
+        return g_settings.incl_up[0] || g_settings.incl_up[1] || g_settings.incl_up[2];
     case ID_BRIGHT: return g_settings.brightness;
     case ID_ROTATE: return g_settings.rotation;
     case ID_SHIFT:  return g_settings.shift_rpm;
@@ -86,7 +116,11 @@ static int get_val(set_id_t id)
 static int enum_count(set_id_t id)
 {
     switch (id) {
+    case ID_GAUGE:  return 2;
     case ID_VIEW:   return 2;
+    case ID_GEAR:   return 2;
+    case ID_ACCENT: return SETTINGS_ACCENT_COUNT < ENUM_MAX ? SETTINGS_ACCENT_COUNT : ENUM_MAX;
+    case ID_INCL:   return 2;
     case ID_RPMMAX: return 5;
     case ID_FUEL:   return SETTINGS_FUEL_COUNT < ENUM_MAX ? SETTINGS_FUEL_COUNT : ENUM_MAX;
     case ID_PRESS:  return 2;
@@ -101,7 +135,17 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
 {
     static const char *const PROTO[] = {"Otomatik", "Sadece CAN", "Sadece K-Line"};
     switch (id) {
+    case ID_GAUGE:  snprintf(buf, len, "%s", v ? "Dijital" : "Analog"); break;
     case ID_VIEW:   snprintf(buf, len, "%s", v ? "Hız" : "Devir"); break;
+    case ID_GEAR:   snprintf(buf, len, "%s", v ? "Açık" : "Kapalı"); break;
+    case ID_ACCENT: snprintf(buf, len, "%s", SETTINGS_ACCENTS[v].name); break;
+    case ID_DIG1:
+    case ID_DIG2:
+    case ID_DIG3:
+    case ID_DIG4:   snprintf(buf, len, "%s", UI_CH[SETTINGS_DIG_CH[v]].name); break;
+    case ID_INCL:   snprintf(buf, len, "%s", v ? "Açık" : "Kapalı"); break;
+    case ID_INCL_WARN: snprintf(buf, len, "%d°", v); break;
+    case ID_INCL_CAL: snprintf(buf, len, "%s", v == 2 ? "Onayla (düz zemin)" : v ? "Yapıldı · yenile" : "Kalibre et"); break;
     case ID_BRIGHT: snprintf(buf, len, "%d %%", v); break;
     case ID_ROTATE: snprintf(buf, len, "%d°", v); break;
     case ID_SHIFT:  snprintf(buf, len, "%d rpm", v); break;
@@ -119,7 +163,7 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
 #endif
     case ID_RESCAN: snprintf(buf, len, "Yeniden ara"); break;
     case ID_RESET:  snprintf(buf, len, "Sıfırla"); break;
-    case ID_VER:    snprintf(buf, len, "v2.0 · ESP32-S3"); break;
+    case ID_VER:    snprintf(buf, len, "v2.2 · ESP32-S3"); break;
     default:        buf[0] = '\0'; break;
     }
 }
@@ -140,7 +184,16 @@ static void commit(set_id_t id, int v)
 {
     bool rebuild = false, rescan = false;
     switch (id) {
+    case ID_GAUGE:  g_settings.gauge = v; rebuild = true; break;
     case ID_VIEW:   g_settings.main_view = v; rebuild = true; break;
+    case ID_GEAR:   g_settings.gear_big = v; rebuild = true; break;
+    case ID_ACCENT: g_settings.accent = v; rebuild = true; break;
+    case ID_DIG1:
+    case ID_DIG2:
+    case ID_DIG3:
+    case ID_DIG4:   g_settings.dig_ch[id - ID_DIG1] = v; rebuild = true; break;
+    case ID_INCL:   g_settings.incl_page = v; rebuild = true; break;
+    case ID_INCL_WARN: g_settings.incl_warn = v; break;
     case ID_BRIGHT: g_settings.brightness = v; board_lcd_set_backlight(v); break;
     case ID_ROTATE: g_settings.rotation = v; dash_ui_set_rotation(v); break;
     case ID_SHIFT:  g_settings.shift_rpm = v; rebuild = true; break;
@@ -203,6 +256,11 @@ static void step_cb(lv_event_t *e)
         const int step = lv_event_get_code(e) == LV_EVENT_LONG_PRESSED_REPEAT ? 5 : 1;
         s.v = (s.v + dir * step + 360) % 360;
         dash_ui_set_rotation(s.v);
+        editor_show_value();
+        return;
+    }
+    if (s.id >= ID_DIG1 && s.id <= ID_DIG4) {
+        s.v = (s.v + dir + SETTINGS_DIG_CH_COUNT) % SETTINGS_DIG_CH_COUNT;     // veri listesinde döner
         editor_show_value();
         return;
     }
@@ -313,7 +371,17 @@ static void row_cb(lv_event_t *e)
     if (s.ed) {
         return;
     }
-    if (id == ID_RESCAN) {
+    if (id == ID_INCL_CAL) {
+        // iki dokunuş: ilki onay ister, 3 sn içinde ikincisi şu anki duruşu düz kabul eder
+        const int64_t now = esp_timer_get_time();
+        if (s.cal_arm && now - s.cal_arm < CAL_ARM_US) {
+            s.cal_arm = 0;
+            ui_incline_zero();
+        } else {
+            s.cal_arm = now;
+        }
+        refresh_rows();
+    } else if (id == ID_RESCAN) {
         ui_request_rescan();
     } else if (ROWS[id].type == T_ACTION) {
         settings_reset();
@@ -338,8 +406,8 @@ lv_obj_t *ui_settings_create(int page, int pages)
     lv_obj_t *list = ui_scroll_list(s.scr);
     for (int i = 0; i < ID_COUNT; i++) {
         s.val[i] = NULL;
-        if (i == ID_PROTO || (i == ID_BLE && !HAS_BLE)) {
-            continue;       // K-Line only: no protocol choice; Bluetooth'suz derlemede telefon satırı yok
+        if (i == ID_PROTO || (i == ID_BLE && !HAS_BLE) || ((i == ID_INCL || i == ID_INCL_WARN || i == ID_INCL_CAL) && !imu_present())) {
+            continue;       // K-Line only: no protocol choice; Bluetooth / eğim sensörü yoksa o satırlar yok
         }
         lv_obj_t *row = ui_list_row(list, ROWS[i].name, &s.val[i]);
         if (ROWS[i].type != T_INFO) {
@@ -354,12 +422,15 @@ lv_obj_t *ui_settings_create(int page, int pages)
     return s.scr;
 }
 
-/** Sayfa açıkken telefonun bağlanıp ayrılması satırda görünsün. */
+/** Sayfa açıkken değişen satırlar: telefonun bağlanıp ayrılması, kalibrasyon onayının süresi dolması. */
 void ui_settings_update(void)
 {
-    if (s.val[ID_BLE]) {
-        char buf[32];
-        val_text(ID_BLE, get_val(ID_BLE), buf, sizeof(buf));
-        ui_label_set(s.val[ID_BLE], buf);
+    static const set_id_t LIVE[] = {ID_BLE, ID_INCL_CAL};
+    char buf[32];
+    for (size_t i = 0; i < sizeof(LIVE) / sizeof(LIVE[0]); i++) {
+        if (s.val[LIVE[i]]) {
+            val_text(LIVE[i], get_val(LIVE[i]), buf, sizeof(buf));
+            ui_label_set(s.val[LIVE[i]], buf);
+        }
     }
 }

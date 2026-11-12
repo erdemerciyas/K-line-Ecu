@@ -48,6 +48,7 @@ typedef struct {
 lv_obj_t *ui_screen_create(void);
 lv_obj_t *ui_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color, const char *txt);
 void ui_label_set(lv_obj_t *label, const char *txt);   // only invalidates on change
+void ui_text_color(lv_obj_t *o, lv_color_t c);         // yazı rengi, sadece değişince (yeniden çizim yok)
 void ui_tile_create(ui_tile_t *t, lv_obj_t *parent, int x, int y, const char *caption);
 void ui_tile_set(ui_tile_t *t, const char *txt, lv_color_t color);
 void ui_tile_set_num(ui_tile_t *t, const char *fmt, float v, lv_color_t color);  // NAN (not supported by the ECU) -> "--"
@@ -126,13 +127,19 @@ void ui_alert_update(const vems_data_t *d, bool fresh, uint32_t mask);
 lv_obj_t *ui_splash_create(void);
 bool ui_splash_update(void);                        // true when the splash may close
 
-lv_obj_t *ui_dial_create(lv_obj_t *scr);           // sürüş kadranı (açılış ekranı için), NULL = PSRAM yok
-void ui_dial_set(float frac);                       // kadranın yanık kısmı 0..1
 
 lv_obj_t *ui_main_create(int page, int pages, uint32_t mask);
 void ui_main_update(const vems_data_t *d, bool fresh);
 uint32_t ui_main_channels(void);                    // sayfadaki kanallar: OBD bunları hızlı sorgular
 bool ui_main_toggle_view(void);                     // büyük değer devir <-> hız, hız yoksa false
+
+lv_obj_t *ui_digital_create(int page, int pages, uint32_t mask);     // dijital sürüş sayfası
+void ui_digital_update(const vems_data_t *d, bool fresh);
+uint32_t ui_digital_channels(void);
+bool ui_digital_toggle_view(void);
+
+lv_obj_t *ui_incline_create(int page, int pages);                   // eğim sayfası (QMI8658)
+void ui_incline_zero(void);
 
 lv_obj_t *ui_focus_create(int page, int pages, uint32_t mask);
 void ui_focus_update(const vems_data_t *d, bool fresh);

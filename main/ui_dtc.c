@@ -179,7 +179,7 @@ static void dtc_text(uint16_t c, const char **title, const char **detail)
 static void status_set(const char *txt, lv_color_t col)
 {
     ui_label_set(t.status, txt);
-    lv_obj_set_style_text_color(t.status, col, 0);
+    ui_text_color(t.status, col);
 }
 
 static void worker(void *arg)

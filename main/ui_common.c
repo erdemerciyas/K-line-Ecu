@@ -81,6 +81,14 @@ void ui_label_set(lv_obj_t *label, const char *txt)
     }
 }
 
+void ui_text_color(lv_obj_t *o, lv_color_t c)
+{
+    // LVGL her stil atamasında nesneyi yeniden çizdirir: renk aynıysa dokunma
+    if (lv_obj_get_style_text_color(o, 0).full != c.full) {
+        lv_obj_set_style_text_color(o, c, 0);
+    }
+}
+
 void ui_tile_create(ui_tile_t *t, lv_obj_t *parent, int x, int y, const char *caption)
 {
     t->box = lv_obj_create(parent);

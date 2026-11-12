@@ -59,6 +59,6 @@ void ui_list_update(const vems_data_t *d, bool fresh)
         const char *u = (c == CH_AFR || c == CH_TARGET || c == CH_RUNTIME || isnan(x)) ? "" : UI_CH[c].unit;
         snprintf(buf, sizeof(buf), u[0] ? "%s %s" : "%s%s", v, u);
         ui_label_set(l.val[i], buf);
-        lv_obj_set_style_text_color(l.val[i], ui_ch_color(c, x), 0);
+        ui_text_color(l.val[i], ui_ch_color(c, x));
     }
 }

@@ -21,12 +21,12 @@ foreach ($dll in 'msvcrt', 'kernel32') {
 }
 
 $cflags = @('--target=x86_64-pc-windows-msvc', '-std=gnu17', '-O1', '-g0', '-ffreestanding', '-nostdlibinc',
-    '-mno-stack-arg-probe', '-fno-stack-protector', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
+    '-mno-stack-arg-probe', '-fno-stack-protector', '-fno-math-errno', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
     "-I$here\stubs", "-I$main")
 if ($PSBoundParameters['Verbose']) { $cflags += '-DSIM_VERBOSE' }
 
 $objs = @()
-foreach ($src in @("$here\test_obd.c", "$here\sim.c", "$main\obd_pid.c")) {
+foreach ($src in @("$here\test_obd.c", "$here\sim.c", "$main\obd_pid.c", "$main\imu_math.c")) {
     $obj = Join-Path $out ([IO.Path]::GetFileNameWithoutExtension($src) + '.obj')
     & "$bin\clang.exe" @cflags -c $src -o $obj
     if ($LASTEXITCODE) { throw "derleme hatası: $src" }

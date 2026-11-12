@@ -8,6 +8,7 @@
  *                 cevapsız PID, kontak kapanıp açılması, iki ECU, arıza kodları (7F 78 bekletmeli), donanım arızası
  */
 #include "../../main/obd.c"
+#include "imu_math.h"
 #include "sim.h"
 
 void exit(int code);
@@ -767,6 +768,148 @@ static void t_int_rescan(void)
 }
 
 // ---------------------------------------------------------------------------
+// Eğim (imu_math.c)
+// ---------------------------------------------------------------------------
+static const float SR[3] = {1, 0, 0}, SU[3] = {0, 1, 0}, SIN[3] = {0, 0, -1};  // ekranın sağı / yukarısı / içi
+
+static void vmix(float out[3], float a, const float x[3], float b, const float y[3])
+{
+    for (int i = 0; i < 3; i++) {
+        out[i] = a * x[i] + b * y[i];
+    }
+}
+
+#define RAD(d) ((d) / 57.29578f)
+
+static void t_incl_level_screen(void)
+{
+    // kart dik, sıfırlanmamış: ekranın yukarısı = aracın yukarısı
+    incl_axes_t ax;
+    CHECK(incl_axes(&ax, NULL, SIN, SU));
+    float g[3], roll, pitch;
+    incl_angles(SU, &ax, &roll, &pitch);
+    CHECK_NEAR(roll, 0, 1e-3);
+    CHECK_NEAR(pitch, 0, 1e-3);
+    vmix(g, cosf(RAD(15)), ax.u, -sinf(RAD(15)), ax.x);     // sağ taraf 15° aşağıda: dünyanın yukarısı sola kayar
+    incl_angles(g, &ax, &roll, &pitch);
+    CHECK_NEAR(roll, 15, 0.01);
+    CHECK_NEAR(pitch, 0, 0.01);
+    vmix(g, cosf(RAD(10)), ax.u, sinf(RAD(10)), ax.f);      // burun 10° yukarıda
+    incl_angles(g, &ax, &roll, &pitch);
+    CHECK_NEAR(roll, 0, 0.01);
+    CHECK_NEAR(pitch, 10, 0.01);
+    CHECK_NEAR(ax.f[2], -1, 1e-5);                          // ileri = ekranın içi
+}
+
+static void t_incl_mounted(void)
+{
+    // kart 25° arkaya yatık ve ekranda 20° döndürülmüş monte; düz zeminde sıfırlanır
+    const float th = RAD(20);
+    float scr_up_world[3], level[3];
+    vmix(scr_up_world, sinf(th), SR, cosf(th), SU);         // ekran düzlemindeki dünya yukarısı
+    const float out[3] = {0, 0, 1};
+    vmix(level, cosf(RAD(25)), scr_up_world, sinf(RAD(25)), out);
+    incl_axes_t ax;
+    CHECK(incl_axes(&ax, level, SIN, SU));
+    // bağımsız kontrol: aracın gerçek sağı ekran düzleminde -20° dönmüş ekran sağıdır (arkaya yatma onu değiştirmez)
+    float right[3];
+    vmix(right, cosf(th), SR, -sinf(th), SU);
+    CHECK_NEAR(ax.x[0] * right[0] + ax.x[1] * right[1] + ax.x[2] * right[2], 1, 1e-4);
+    float roll, pitch, g[3];
+    incl_angles(level, &ax, &roll, &pitch);
+    CHECK_NEAR(roll, 0, 0.01);
+    CHECK_NEAR(pitch, 0, 0.01);
+    vmix(g, cosf(RAD(-12)), ax.u, -sinf(RAD(-12)), ax.x);   // sol taraf 12° aşağıda
+    incl_angles(g, &ax, &roll, &pitch);
+    CHECK_NEAR(roll, -12, 0.01);
+    CHECK_NEAR(pitch, 0, 0.01);
+    vmix(g, cosf(RAD(-8)), ax.u, sinf(RAD(-8)), ax.f);      // burun 8° aşağıda
+    incl_angles(g, &ax, &roll, &pitch);
+    CHECK_NEAR(pitch, -8, 0.01);
+    CHECK_NEAR(roll, 0, 0.01);
+    // sıfırlanmamış olsaydı montaj açısı eğim gibi görünürdü
+    incl_axes_t raw;
+    incl_axes(&raw, NULL, SIN, SU);
+    incl_angles(level, &raw, &roll, &pitch);
+    CHECK(fabsf(pitch) > 20);
+}
+
+static void t_incl_filter(void)
+{
+    incl_axes_t ax;
+    incl_axes(&ax, NULL, SIN, SU);
+    incl_filter_t f = {0};
+    const float zero[3] = {0};
+    float roll, pitch, a[3];
+    // düz, durağan: hemen 0
+    for (int i = 0; i < 50; i++) {
+        incl_filter_step(&f, SU, zero, 0.02f);
+    }
+    incl_angles(f.g, &ax, &roll, &pitch);
+    CHECK_NEAR(roll, 0, 0.1);
+
+    // 50 km/h sola dönüş, sapma 0.3 rad/s: 0.43 g yanal ivme. Telafi ile eğim ~0
+    const float v = 50 / 3.6f, yaw = 0.3f;
+    float gyro[3];
+    vmix(gyro, yaw, ax.u, 0, ax.u);
+    for (int i = 0; i < 250; i++) {     // 5 sn
+        vmix(a, 1, ax.u, -yaw * v / 9.80665f, ax.x);            // ivmeölçer: yukarı + merkezcil (sola)
+        incl_compensate(a, gyro, &ax, v, 0);
+        incl_filter_step(&f, a, gyro, 0.02f);
+    }
+    incl_angles(f.g, &ax, &roll, &pitch);
+    CHECK(fabsf(roll) < 0.5f);
+    // telafi olmasaydı ~23° yatık görünürdü
+    incl_filter_t raw = {0};
+    for (int i = 0; i < 250; i++) {
+        vmix(a, 1, ax.u, -yaw * v / 9.80665f, ax.x);
+        incl_filter_step(&raw, a, gyro, 0.02f);
+    }
+    incl_angles(raw.g, &ax, &roll, &pitch);
+    CHECK(roll > 15);
+    const float raw_roll = roll;
+
+    // frenleme 0.5 g (hız değişimi telafisi): burun eğimi ~0
+    incl_filter_t fb = {0};
+    for (int i = 0; i < 150; i++) {
+        vmix(a, 1, ax.u, -0.5f, ax.f);
+        incl_compensate(a, zero, &ax, 20, -0.5f * 9.80665f);
+        incl_filter_step(&fb, a, zero, 0.02f);
+    }
+    incl_angles(fb.g, &ax, &roll, &pitch);
+    CHECK(fabsf(pitch) < 0.5f);
+
+    // gerçek yan yatma: 2 sn'de 0 -> 20°, jiroskop ve ivmeölçer birlikte; sonunda 20°'ye oturur
+    incl_filter_t fr = {0};
+    for (int i = 0; i < 50; i++) {
+        incl_filter_step(&fr, SU, zero, 0.02f);
+    }
+    const float rate = RAD(10);         // rad/s, ileri eksen etrafında
+    for (int i = 1; i <= 150; i++) {
+        const float ang = fminf(rate * i * 0.02f, RAD(20));
+        vmix(a, cosf(ang), ax.u, -sinf(ang), ax.x);
+        float w[3];
+        vmix(w, ang < RAD(20) ? rate : 0, ax.f, 0, ax.f);      // d(g)/dt = -w x g -> w = +açısal hız * ileri
+        incl_filter_step(&fr, a, w, 0.02f);
+    }
+    incl_angles(fr.g, &ax, &roll, &pitch);
+    CHECK_NEAR(roll, 20, 0.5);
+
+    // kartta ölçülen jiroskop sıfır kayması (X -3.3°/s): durağanken öğrenilir, eğim ivmeölçere oturur
+    incl_filter_t fz = {0};
+    const float drift[3] = {RAD(-3.3f), 0, 0};
+    float tilted[3];
+    vmix(tilted, cosf(RAD(5)), ax.u, sinf(RAD(5)), ax.f);
+    for (int i = 0; i < 1500; i++) {    // 30 sn
+        incl_filter_step(&fz, tilted, drift, 0.02f);
+    }
+    incl_angles(fz.g, &ax, &roll, &pitch);
+    CHECK_NEAR(pitch, 5, 0.2);
+    CHECK_NEAR(fz.bias[0], RAD(-3.3f), RAD(0.2f));
+    REPORT("  eğim                 50 km/h viraj (0.43 g): telafiyle < 0.5°, telafisiz %.0f° yanlış yatma\n", raw_roll);
+}
+
+// ---------------------------------------------------------------------------
 void test_entry(void)
 {
     obd_start();        // muteks + ikili semafor + görev kaydı (bir kez)
@@ -802,6 +945,10 @@ void test_entry(void)
     run("donanım arızası: RX yolu kopuk", t_int_rx_broken);
     run("kontak kapalı: ECU sessiz, açılınca bağlanır", t_int_ecu_silent);
     run("yeniden tarama", t_int_rescan);
+    printf(" eğim (imu_math)\n");
+    run("dik kart: yan yatma ve burun eğimi", t_incl_level_screen);
+    run("yatık + döndürülmüş montaj, düz zeminde sıfır", t_incl_mounted);
+    run("filtre: viraj ve fren telafisi, gerçek yatma", t_incl_filter);
 
     printf("\n ölçümler (sanal zaman, 10400 baud, ECU P2 25 ms)\n%s", s_report);
     printf("\n %d test, %d kontrol: %s\n", s_tests, s_checks,

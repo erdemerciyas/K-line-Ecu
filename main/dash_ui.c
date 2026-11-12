@@ -30,6 +30,7 @@
 #include "board_lcd.h"
 #include "ui_priv.h"
 #include "dash_ui.h"
+#include "imu.h"
 
 static const char *TAG = "ui";
 
@@ -42,7 +43,7 @@ static const char *TAG = "ui";
 #define FADE_MS             450
 #define PERF_LOG_US         (10 * 1000 * 1000)
 
-typedef enum { PG_DRIVE, PG_FOCUS, PG_LIST, PG_AFR, PG_DTC, PG_SETTINGS, PAGE_MAX } page_type_t;
+typedef enum { PG_DRIVE, PG_FOCUS, PG_LIST, PG_AFR, PG_INCLINE, PG_DTC, PG_SETTINGS, PAGE_MAX } page_type_t;
 
 typedef enum { TR_LEFT, TR_RIGHT, TR_FADE } transition_t;
 
@@ -58,6 +59,7 @@ static struct {
     int64_t last_switch;
     uint32_t layout_mask;       // channels the pages were built for (0 = typical set before the first connection)
     bool rebuild_req;
+    bool digital;               // sürüş sayfası dijital (sayfalar kurulurken ayardan)
     bool rescan_req;
     bool dtc_req;
     vems_data_t d;             // latest frame, shared by the update of every page
@@ -430,7 +432,10 @@ static void transition_start(lv_obj_t *to, transition_t type, uint32_t time_ms, 
 static lv_obj_t *page_create(page_type_t t, int idx, int count)
 {
     switch (t) {
-    case PG_DRIVE:  return ui_main_create(idx, count, ui.layout_mask);
+    case PG_DRIVE:
+        // Ayarlar > Gösterge tipi: analog (LED halka + ibre) ya da dijital
+        return ui.digital ? ui_digital_create(idx, count, ui.layout_mask) : ui_main_create(idx, count, ui.layout_mask);
+    case PG_INCLINE: return ui_incline_create(idx, count);
     case PG_FOCUS:  return ui_focus_create(idx, count, ui.layout_mask);
     case PG_LIST:   return ui_list_create(idx, count, ui.layout_mask);
     case PG_AFR:    return ui_afr_create(idx, count);
@@ -442,7 +447,13 @@ static lv_obj_t *page_create(page_type_t t, int idx, int count)
 static void page_update(int idx)
 {
     switch (ui.type[idx]) {
-    case PG_DRIVE:  ui_main_update(&ui.d, ui.fresh); break;
+    case PG_DRIVE:
+        if (ui.digital) {
+            ui_digital_update(&ui.d, ui.fresh);
+        } else {
+            ui_main_update(&ui.d, ui.fresh);
+        }
+        break;
     case PG_FOCUS:  ui_focus_update(&ui.d, ui.fresh); break;
     case PG_LIST:   ui_list_update(&ui.d, ui.fresh); break;
     case PG_AFR:    ui_afr_update(&ui.d, ui.fresh); break;
@@ -462,6 +473,7 @@ static void pages_build(void)
     const page_type_t cur = old_count ? ui.type[ui.page] : PG_DRIVE;
     memcpy(old, ui.pages, sizeof(old));
 
+    ui.digital = g_settings.gauge == SET_GAUGE_DIGITAL;
     page_type_t list[PAGE_MAX];
     int n = 0;
     list[n++] = PG_DRIVE;
@@ -469,6 +481,9 @@ static void pages_build(void)
     list[n++] = PG_LIST;
     if (ui.layout_mask & CH_BIT(CH_AFR)) {
         list[n++] = PG_AFR;
+    }
+    if (g_settings.incl_page && imu_present()) {
+        list[n++] = PG_INCLINE;
     }
     list[n++] = PG_DTC;
     list[n++] = PG_SETTINGS;
@@ -530,7 +545,11 @@ static void page_event_cb(lv_event_t *e)
         }
         lv_indev_wait_release(lv_indev_get_act());
     } else if (code == LV_EVENT_SHORT_CLICKED && t == PG_DRIVE) {
-        ui_main_toggle_view();
+        if (ui.digital) {
+            ui_digital_toggle_view();
+        } else {
+            ui_main_toggle_view();
+        }
     } else if (code == LV_EVENT_SHORT_CLICKED && t == PG_FOCUS) {
         lv_point_t p;
         lv_indev_get_point(lv_indev_get_act(), &p);
@@ -541,6 +560,8 @@ static void page_event_cb(lv_event_t *e)
             ui_focus_reset();
         } else if (t == PG_AFR) {
             ui_afr_reset_minmax();
+        } else if (t == PG_INCLINE) {
+            ui_incline_zero();      // araç düz zeminde: şu anki duruş sıfır olur
         }
         ui.last_switch = esp_timer_get_time();
     }
@@ -569,7 +590,8 @@ static uint32_t page_channels(void)
     }
     // hararet ekranda değilse obd.c onu kendi bekçi sırasında okur (~2 sn): uyarı gecikmez, istekler ekrandaki veriye
     switch (ui.type[ui.page]) {
-    case PG_DRIVE:  return ui_main_channels() | CH_BIT(CH_CLT);
+    case PG_DRIVE:  return ui.digital ? ui_digital_channels() : ui_main_channels() | CH_BIT(CH_CLT);
+    case PG_INCLINE: return CH_BIT(CH_SPEED);    // eğim: viraj / fren telafisi hızla yapılır
     case PG_FOCUS:  return ui_focus_channels();
     case PG_LIST:   return ui_list_channels();
     case PG_AFR:    return CH_BIT(CH_AFR) | CH_BIT(CH_TARGET) | CH_BIT(CH_STFT);

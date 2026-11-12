@@ -13,3 +13,6 @@ strcmp
 strcpy
 strstr
 fflush
+atan2
+sin
+cos

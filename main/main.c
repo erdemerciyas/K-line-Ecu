@@ -15,6 +15,7 @@
 #if CONFIG_VEMS_UI_ENABLE
 #include "board_lcd.h"
 #include "dash_ui.h"
+#include "imu.h"
 #endif
 #if CONFIG_VEMS_BLE_PANEL
 #include "ble_panel.h"
@@ -91,6 +92,7 @@ void app_main(void)
 #if CONFIG_VEMS_UI_ENABLE
     esp_lcd_panel_handle_t panel;
     ESP_ERROR_CHECK(board_lcd_init(&panel));
+    imu_start();        // eğim sensörü (I2C hattı ekranla ortak), yoksa eğim sayfası gizlenir
     srclog_step("ekran 480×480");
     srclog_done(SRCLOG_OK, "OK");
     ESP_ERROR_CHECK(dash_ui_start(panel));
@@ -114,6 +116,6 @@ void app_main(void)
 
     ESP_ERROR_CHECK(obd_start());
     if (CONFIG_VEMS_PRINT_INTERVAL_MS > 0) {
-        xTaskCreatePinnedToCore(print_task, "print", 4096, NULL, 3, NULL, 1);
+        xTaskCreatePinnedToCore(print_task, "print", 4096, NULL, 1, NULL, 1);     // en düşük: ekranı hiç bekletmesin
     }
 }

@@ -24,7 +24,26 @@ typedef struct {
     uint8_t main_view;      // set_view_t: sürüş sayfasında büyük gösterilen değer
     uint16_t rotation;      // 0..359 derece, ekran saat yönünde döndürülür (kutu içinde yamuk duran ekran için)
     uint8_t ble;            // 0 / 1: Bluetooth telefon paneli yayını (yeni alanlar hep sona: eski kayıt okunabilsin)
+    uint8_t gear_big;       // 0 / 1: sürüş sayfasında ortada büyük vites; 0 = ortada devir/hız, vites küçük kutucukta
+    uint8_t gauge;          // set_gauge_t: sürüş sayfası analog (LED halka + ibre) ya da dijital
+    uint8_t accent;         // dijital göstergenin vurgu rengi, SETTINGS_ACCENTS indeksi
+    uint8_t dig_ch[4];      // dijital göstergenin 4 kutucuğu, SETTINGS_DIG_CH indeksi
+    uint8_t incl_page;      // 0 / 1: eğim sayfası
+    uint8_t incl_warn;      // 10..45°: yan yatma uyarısı
+    int16_t incl_up[3];     // eğim sıfırı: düz zeminde ölçülen "yukarı" (IMU ekseninde, mili-g); 0,0,0 = sıfırlanmadı
 } settings_t;
+
+typedef enum { SET_GAUGE_ANALOG = 0, SET_GAUGE_DIGITAL } set_gauge_t;
+
+typedef struct {
+    const char *name;
+    uint32_t rgb;
+} settings_accent_t;
+
+extern const settings_accent_t SETTINGS_ACCENTS[];
+extern const int SETTINGS_ACCENT_COUNT;
+extern const uint8_t SETTINGS_DIG_CH[];     // vems_ch_t: dijital kutucuklarda seçilebilen veriler
+extern const int SETTINGS_DIG_CH_COUNT;
 
 typedef struct {
     const char *name;

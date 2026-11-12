@@ -12,3 +12,10 @@
 #define lroundf(x)  __builtin_lroundf(x)
 #define floorf(x)   __builtin_floorf(x)
 #define sqrtf(x)    __builtin_sqrtf(x)
+// trigonometri: msvcrt.dll'in double sürümleri
+double atan2(double y, double x);
+double sin(double x);
+double cos(double x);
+#define atan2f(y, x)    ((float)atan2((y), (x)))
+#define sinf(x)         ((float)sin(x))
+#define cosf(x)         ((float)cos(x))

@@ -30,3 +30,6 @@ void board_lcd_present(const void *fb);
 
 /** Polls the CST820 touch controller. Returns true while a finger is down. */
 bool board_touch_read(uint16_t *x, uint16_t *y);
+
+/** Kartın I2C hattı (dokunmatik, IO genişletici, IMU ortak); board_lcd_init'ten sonra geçerli. */
+struct i2c_master_bus_t *board_i2c_bus(void);

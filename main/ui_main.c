@@ -265,6 +265,7 @@ static struct {
     lv_obj_t *dots[SHIFT_DOTS];
     lv_obj_t *status;
     lv_obj_t *gear;
+    bool gear_big;          // ayar: ortada büyük vites; değilse vites küçük kutucukta, ortada devir/hız
     lv_obj_t *val;
     lv_obj_t *unit;
     lv_obj_t *sec_val;
@@ -650,59 +651,6 @@ static lv_obj_t *layer_obj(lv_obj_t *scr, lv_event_cb_t cb)
     return o;
 }
 
-// ---------------------------------------------------------------------------
-// Açılış ekranının kadranı: aynı pişirilmiş LED halka, yanık kısmı ilerlemeyi gösterir
-// ---------------------------------------------------------------------------
-static struct {
-    lv_obj_t *obj;
-    int lit;
-} dial;
-
-static void dial_draw_cb(lv_event_t *e)
-{
-    lv_draw_ctx_t *ctx = lv_event_get_draw_ctx(e);
-    draw_lit(ctx, 0, dial.lit, LV_OPA_COVER);
-    if (dial.lit > 0) {
-        draw_seg(ctx, dial.lit - 1, lv_color_white(), LV_OPA_60, SEG_FILL);
-    }
-}
-
-static void dial_delete_cb(lv_event_t *e)
-{
-    dial.obj = NULL;
-}
-
-lv_obj_t *ui_dial_create(lv_obj_t *scr)
-{
-    if (!bake_dial(g_settings.rpm_max / SEG_RPM * SEG_RPM, g_settings.shift_rpm)) {
-        return NULL;
-    }
-    lv_obj_t *bg = lv_img_create(scr);
-    lv_img_set_src(bg, &bake.off);
-    lv_obj_set_pos(bg, 0, 0);
-    dial.obj = layer_obj(scr, dial_draw_cb);
-    lv_obj_add_event_cb(dial.obj, dial_delete_cb, LV_EVENT_DELETE, NULL);
-    dial.lit = 0;
-    return dial.obj;
-}
-
-void ui_dial_set(float frac)
-{
-    if (dial.obj == NULL) {
-        return;
-    }
-    const int nseg = bake.rpm_max / SEG_RPM;
-    const int lit = LV_MAX(0, LV_MIN(nseg, (int)lroundf(frac * nseg)));
-    if (lit == dial.lit) {
-        return;
-    }
-    lv_area_t a;
-    sector_area(rpm_ang((LV_MIN(lit, dial.lit) - 1) * SEG_RPM), rpm_ang(LV_MAX(lit, dial.lit) * SEG_RPM),
-                R_TICK_MAJ - 10, CX, &a);
-    lv_obj_invalidate_area(dial.obj, &a);
-    dial.lit = lit;
-}
-
 lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
 {
     lv_obj_t *scr = ui_screen_create();
@@ -749,13 +697,34 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
     lv_obj_set_style_text_letter_space(m.status, 2, 0);
     lv_obj_align(m.status, LV_ALIGN_TOP_MID, 0, 108);
 
-    m.gear = ui_label(scr, &ui_font_gear, C_TEXT, m.has_speed ? "N" : "");
-    lv_obj_align(m.gear, LV_ALIGN_TOP_MID, 0, 124);
+    // vites: ayarda "Büyük vites" açıksa ortada büyük; kapalıysa ortada devir/hız, vites altta küçük kutucukta
+    m.gear_big = g_settings.gear_big;
+    if (m.gear_big) {
+        m.gear = ui_label(scr, &ui_font_gear, C_TEXT, m.has_speed ? "N" : "");
+        lv_obj_align(m.gear, LV_ALIGN_TOP_MID, 0, 124);
+    } else {
+        lv_obj_t *box = lv_obj_create(scr);
+        lv_obj_remove_style_all(box);
+        lv_obj_set_size(box, 52, 40);
+        lv_obj_set_style_radius(box, 10, 0);
+        lv_obj_set_style_bg_color(box, C_TILE, 0);
+        lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(box, C_TILE_BRD, 0);
+        lv_obj_set_style_border_width(box, 1, 0);
+        lv_obj_clear_flag(box, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);    // düşen rakam kutuda kırpılır
+        lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 268);
+        m.gear = ui_label(box, &ui_font_label_lg, C_TEXT, "N");
+        lv_obj_center(m.gear);
+        if (!m.has_speed) {
+            lv_obj_add_flag(box, LV_OBJ_FLAG_HIDDEN);   // hız yoksa vites tahmini de yok
+        }
+    }
 
     const bool big_speed = m.speed_view;
-    value_row(scr, 240, &ui_font_big, &ui_font_label_lg, &m.val, &m.unit, big_speed ? "KM/H" : "RPM");
+    const int y_val = m.gear_big ? 240 : 150, y_sec = m.gear_big ? 310 : 226;
+    value_row(scr, y_val, &ui_font_big, &ui_font_label_lg, &m.val, &m.unit, big_speed ? "KM/H" : "RPM");
     if (m.has_speed) {
-        value_row(scr, 310, &ui_font_value, &ui_font_label, &m.sec_val, &m.sec_unit, big_speed ? "RPM" : "KM/H");
+        value_row(scr, y_sec, &ui_font_value, &ui_font_label, &m.sec_val, &m.sec_unit, big_speed ? "RPM" : "KM/H");
     } else {
         m.sec_val = NULL;
     }
@@ -896,7 +865,7 @@ static void gear_update(int g, int64_t now, int eff_shift)
     lv_anim_init(&a);
     lv_anim_set_var(&a, m.gear);
     lv_anim_set_exec_cb(&a, gear_anim_cb);
-    lv_anim_set_values(&a, -22, 0);
+    lv_anim_set_values(&a, m.gear_big ? -22 : -12, 0);
     lv_anim_set_time(&a, 280);
     lv_anim_set_path_cb(&a, lv_anim_path_overshoot);
     lv_anim_start(&a);

@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K-Line Devre Testi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+:root{
+ --bg:#f3f4f1; --fg:#1d2024; --muted:#5d636b; --line:#d5d8d2; --panel:#ffffff; --soft:#eceee9;
+ --accent:#b9770e; --ok:#2e8a4a; --warn:#b4472a; --tx:#2f6fb5; --rx:#2e8a4a;
+ --display:"Barlow Condensed","Arial Narrow",sans-serif;
+ --body:"Barlow",system-ui,sans-serif;
+ --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; --tx:#6aa6e8; --rx:#58c07a; color-scheme:dark}}
+:root[data-theme="dark"]{
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; --tx:#6aa6e8; --rx:#58c07a; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:400 15px/1.55 var(--body);margin:0}
+.wrap{max-width:980px;margin:0 auto;padding:28px 16px 80px;display:grid;gap:26px}
+header{display:grid;gap:6px}
+.eyebrow{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font:700 clamp(30px,5vw,44px)/1.05 var(--display);margin:0;letter-spacing:.01em}
+h2{font:600 24px/1.2 var(--display);margin:0;letter-spacing:.02em}
+.lede{color:var(--muted);max-width:70ch;margin:0}
+code,.m{font-family:var(--mono);font-size:.88em}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+.note{border-left:3px solid var(--accent);padding:10px 14px;background:var(--soft);border-radius:0 8px 8px 0}
+.note.warn{border-color:var(--warn)}
+ul.tight{margin:6px 0 0;padding-left:20px}
+
+/* Sinyal zinciri */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font:500 12px var(--mono)}
+.chain span{border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:var(--panel)}
+.chain .tx{border-color:var(--tx);color:var(--tx)}
+.chain .rx{border-color:var(--rx);color:var(--rx)}
+.chain .chip{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chain i{color:var(--muted);font-style:normal}
+
+/* Özet */
+.summary{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.pill{font:600 13px var(--mono);padding:4px 10px;border-radius:99px;border:1px solid var(--line);background:var(--panel)}
+.pill.ok{color:var(--ok);border-color:var(--ok)}
+.pill.bad{color:var(--warn);border-color:var(--warn)}
+.summary .grow{flex:1}
+button{font:600 13px var(--body);border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:6px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+#verdict{display:none}
+#verdict.show{display:block}
+#verdict.bad{border-color:var(--warn)}
+#verdict.good{border-color:var(--ok)}
+#verdict h2{margin-bottom:6px}
+
+/* Adımlar */
+section.sec{display:grid;gap:12px}
+.sec-head{display:grid;gap:4px}
+.sec-head .num{font:700 13px var(--mono);color:var(--accent)}
+.step{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:start;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.step .id{font:700 14px var(--mono);color:var(--muted);padding-top:2px}
+.step .t{font-weight:600}
+.step .how{color:var(--muted);font-size:14px;margin-top:2px}
+.step .exp{font:500 12px var(--mono);margin-top:6px;color:var(--fg)}
+.step .diag{display:none;margin-top:8px;font-size:14px;color:var(--warn)}
+.step.fail{border-color:var(--warn)}
+.step.fail .diag{display:block}
+.step.pass{border-color:var(--ok)}
+.step.pass .id{color:var(--ok)}
+.step.fail .id{color:var(--warn)}
+.ctl{display:flex;gap:6px;align-items:center}
+.ctl input{width:92px;font:500 15px var(--mono);padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+.ctl .u{font:500 13px var(--mono);color:var(--muted)}
+.yn button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+@media (max-width:640px){
+ .step{grid-template-columns:34px 1fr}
+ .ctl{grid-column:2}
+}
+@media print{.summary button{display:none}.summary{position:static}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+ <div class="eyebrow">K-Line OBD · donanım teşhisi</div>
+ <h1>K-Line ve Voltaj Modülü Devre Testi</h1>
+ <p class="lede">Bu sayfa devreyi ESP32'den ve araçtan ayırıp parça parça test eder: önce enerjisiz bağlantılar, sonra 78L05 ve besleme, sonra L9637D, en son seviye dönüştürücü (voltaj modülü). Her ölçümü kutuya yaz, sayfa geçti/kaldı gösterir. <b>İlk kırmızı adımda dur:</b> arıza oradadır. Değerler bu tarayıcıda saklanır.</p>
+</header>
+
+<div class="card">
+ <h2 style="margin-bottom:8px">Sinyal yolu</h2>
+ <div class="chain">
+  <span class="tx">GPIO44 · başlık RXD</span><i>→</i><span class="tx">LV1</span><i>→</i><span class="tx">HV1</span><i>→</i><span class="tx">pin 4 TX</span><i>→</i>
+  <span class="chip">L9637D</span><i>→</i><span>pin 6 K ⇄ OBD 7</span>
+ </div>
+ <div class="chain" style="margin-top:8px">
+  <span class="chip">L9637D</span><i>→</i><span class="rx">pin 1 RX</span><i>→</i><span class="rx">HV2</span><i>→</i><span class="rx">LV2</span><i>→</i><span class="rx">GPIO43 · başlık TXD</span>
+ </div>
+ <p class="lede" style="margin-top:10px;font-size:14px">Delik adları breadboard düzenine göredir (montaj rehberindeki gibi): L9637D alt sıra <code>f13–f16</code> = pin 1, 2, 3, 4; üst sıra <code>e13–e16</code> = pin 8, 7, 6, 5. Seviye dönüştürücü HV sırası <code>g3–g8</code> = HV4, HV3, GND, HV, HV2, HV1; LV sırası <code>d3–d8</code> aynı sırayla. Delikli plakette pin adına göre ölç; orada TX kanalı HV3/LV3'tür.</p>
+</div>
+
+<div class="note">
+ <b>Neden bu sıra?</b> Geçen haftaki sürüm DevKit kartında GPIO17/18 ile çalışıyordu. Bu hafta Waveshare kartına ve GPIO44/43'e dönüldü. Devre bu sayfada ESP olmadan baştan sona geçerse arıza devrede değil, Waveshare tarafındadır (UART Type-C, çapraz RXD/TXD yazıları, kablo). 5. bölüm o tarafı test eder.
+</div>
+
+<div class="summary">
+ <span class="pill" id="sDone">0 / 0 ölçüldü</span>
+ <span class="pill ok" id="sOk">0 geçti</span>
+ <span class="pill bad" id="sBad">0 kaldı</span>
+ <span class="grow"></span>
+ <button id="copy">Sonuçları kopyala</button>
+ <button id="reset">Sıfırla</button>
+</div>
+
+<div class="card" id="verdict"><h2 id="vTitle"></h2><div id="vBody"></div></div>
+
+<div id="steps"></div>
+
+<div class="note warn">
+ <b>Güvenlik.</b> GND'ye değdirme testlerini birkaç saniye yap. K hattını GND'ye çekmek 500 Ω üzerinden ≈ 24 mA akıtır, dirençler için sorun değildir. Bu testleri araçta değil masada, adaptörle yap. ESP32 bağlıyken 5 V'u hiçbir LV pinine ya da ESP pinine değdirme.
+</div>
+
+</div>
+
+<script>
+// Adım listesi: type 'v' = sayı (min/max, vs = besleme gerilimi), 'yn' = evet/hayır (exp = beklenen)
+const SECTIONS = [
+ {n:'0', title:'Hazırlık',
+  intro:'Gerekenler: multimetre, 12 V adaptör (9 V pil de olur), bir atlama kablosu. Opsiyonel: seri halde 2 kalem pil (≈3 V).',
+  steps:[
+   {id:'0.1', t:'ESP kablosu devreden çıkarıldı', how:'Ekran kartından gelen 4 teli (a5–a8) çıkar. 4. bölüme kadar ESP bağlı olmayacak.', type:'yn', exp:'y', fail:'Önce ESP kablosunu çıkar. ESP bağlıyken yapılan ölçümler ESP tarafındaki bir hatayı devre hatası gibi gösterebilir.'},
+   {id:'0.2', t:'OBD fişi araçtan çıkarıldı', how:'1–3. bölüm masada yapılır.', type:'yn', exp:'y', fail:'Fişi araçtan çıkar.'},
+  ]},
+ {n:'1', title:'Enerjisiz kontrol: bip, Ω ve diyot',
+  intro:'Besleme yok. Kondansatörler yüzünden ilk anda kısa bir bip duyup susması normaldir; sürekli bip kısa devre demektir.',
+  steps:[
+   {id:'1.1', t:'+12 V ray ↔ GND kısa devre yok', how:'Bip modu: üst + ray ↔ üst − ray. Sürekli bip var mı?', type:'yn', exp:'n', fail:'+12 V hattı GND\'ye kısa. D1, C1, 78L05 IN (g23) ve L9637D pin 7 (e14) çevresinde komşu deliğe kayan bacak ya da lehim ara.'},
+   {id:'1.2', t:'+5 V ray ↔ GND kısa devre yok', how:'Bip modu: alt + ray ↔ alt − ray. Sürekli bip var mı?', type:'yn', exp:'n', fail:'5 V hattı GND\'ye kısa. 78L05 bacakları (g21/g22), C2, dönüştürücü HV/GND (g6/g5) yan yana: kayma olup olmadığına bak.'},
+   {id:'1.3', t:'D1 diyotu doğru yönde', how:'Diyot modu: kırmızı prob anot (c27, OBD 16 tarafı), siyah prob katot (c23, gri bant).', type:'v', min:0.40, max:0.75, u:'V', fail:'OL çıkıyorsa diyot ters takılı ya da kopuk; ≈0 V ise kısa. Gri bant c23 (devre) tarafında olmalı.'},
+   {id:'1.4', t:'Pull-up direnci: pin 7 (VS) ↔ pin 6 (K)', how:'Ohm modu: e14 ↔ e15. İki 1 kΩ paralel ≈ 500 Ω.', type:'v', min:440, max:580, u:'Ω', fail:'≈1000 Ω ise dirençlerden biri bağlı değil (iş görür ama kontrol et). OL ise K hattında pull-up yok: R1/R2 b14–b18 / c14–c18 ve a15 → d18 kablosu. ≈0 ise pin 6 ile pin 7 kısa.'},
+   {id:'1.5', t:'L9637D pin 5 (GND) ↔ GND', how:'Bip: e16 ↔ OBD pin 4 teli.', type:'yn', exp:'y', fail:'Entegrenin GND\'si yok: a16 → üst − ray kablosu ve adaptörde pin 5 lehimi.'},
+   {id:'1.6', t:'L9637D pin 3 (VCC) ↔ 78L05 OUT', how:'Bip: f15 ↔ g21. Daha önce arıza tam olarak buradaydı.', type:'yn', exp:'y', fail:'Entegre 5 V almıyor: j15 → alt + ray ve j21 → alt + ray kablolarını kontrol et.'},
+   {id:'1.7', t:'L9637D pin 7 (VS) ↔ D1 katodu', how:'Bip: e14 ↔ c23.', type:'yn', exp:'y', fail:'VS\'ye 12 V gitmiyor: a14 → üst + ray ve a23 → üst + ray kabloları.'},
+   {id:'1.8', t:'L9637D pin 6 (K) ↔ OBD pin 7 teli', how:'Bip: e15 ↔ OBD fişinin 7 numaralı teli.', type:'yn', exp:'y', fail:'K hattı OBD\'ye ulaşmıyor: OBD 7 → a18 ve a15 → d18. Fiş tarafında doğru tel olduğunu da doğrula.'},
+   {id:'1.9', t:'pin 4 (TX) ↔ HV1 ve pin 1 (RX) ↔ HV2', how:'Bip: f16 ↔ g8, sonra f13 ↔ g7. İkisi de bip vermeli.', type:'yn', exp:'y', fail:'i8 → i16 (TX) ya da h13 → h7 (RX) kablosu kopuk veya yanlış sütunda. Modülün ters takılı olup olmadığına bak: soldan HV1 okuyorsan ters.'},
+   {id:'1.10', t:'Dönüştürücü HV ↔ 5 V, GND ↔ GND', how:'Bip: g6 ↔ alt + ray, g5 ↔ alt − ray.', type:'yn', exp:'y', fail:'Voltaj modülünün 5 V tarafı beslenmiyor: j6 → alt + ray ve j5 → alt − ray.'},
+   {id:'1.11', t:'Adaptör: 8 bacağın hepsi kendi deliğine bip veriyor', how:'Entegrenin her bacağından adaptör deliğine bip; komşu bacaklar birbirine bip vermemeli (özellikle 5–6–7).', type:'yn', exp:'y', fail:'SO8 lehimi eksik ya da köprü var. Lehimi düzelt; entegre ters lehimlendiyse (pin-1 noktası yanlış köşede) adaptörü yeniden yap.'},
+  ]},
+ {n:'2', title:'Voltaj testi: 78L05 ve besleme',
+  intro:'12 V adaptörün + ucunu OBD 16 teline, − ucunu OBD 4 teline bağla. ESP hâlâ bağlı değil. Siyah prob hep GND\'de (OBD 4).',
+  steps:[
+   {id:'2.0', t:'Besleme gerilimi (OBD 16 teli)', how:'Adaptörün gerçek çıkışını yaz. Sonraki aralıklar buna göre hesaplanır.', type:'v', min:8, max:15, u:'V', vs:true, fail:'Adaptör 8–15 V vermiyor ya da ters bağlı (eksi değer).'},
+   {id:'2.1', t:'78L05 IN (g23)', how:'Diyot sonrası gerilim, beslemeden ≈0.6 V düşük.', type:'v', min:vs=>vs-1.0, max:vs=>vs-0.35, u:'V', fail:'0 V: D1 ters ya da a27 / e23 → f23 kablosu kopuk. Besleme ile aynıysa D1 kısa ya da atlanmış.'},
+   {id:'2.2', t:'78L05 OUT (g21)', how:'Regülatör çıkışı.', type:'v', min:4.8, max:5.2, u:'V', fail:'0 V ise 78L05 ters takılı (yazılı yüz alta bakmalı) ya da GND bacağı (g22 → j22 → alt − ray) bağlı değil. ≈ giriş gerilimi ise bacaklar karışık. 78L05 ısınıyorsa 5 V tarafında kısa var.'},
+   {id:'2.3', t:'L9637D pin 7 (VS)', how:'e14.', type:'v', min:vs=>vs-1.0, max:vs=>vs-0.35, u:'V', fail:'78L05 IN doğru ama VS yanlışsa a14 → üst + ray kablosu.'},
+   {id:'2.4', t:'L9637D pin 3 (VCC)', how:'f15.', type:'v', min:4.8, max:5.2, u:'V', fail:'78L05 OUT doğru ama burada yoksa j15 → alt + ray kablosu ya da adaptörde pin 3 lehimi.'},
+   {id:'2.5', t:'L9637D pin 5 (GND)', how:'e16, siyah prob GND\'de.', type:'v', min:-0.05, max:0.05, u:'V', fail:'Entegre GND\'si yüzüyor: a16 → üst − ray ve 2. sütundaki iki GND rayı arasındaki köprü.'},
+   {id:'2.6', t:'L9637D pin 6 (K) boşta', how:'e15. Pull-up K\'yı VS\'ye çekmeli.', type:'v', min:vs=>vs-1.3, max:vs=>vs-0.3, u:'V', fail:'0 V\'a yakınsa K hattı GND\'ye kısa ya da entegre K\'yı aşağı çekiyor (pin 4 boşta LOW olabilir: 2.7\'ye bak). Pull-up yok ise 1.4\'e dön.'},
+   {id:'2.7', t:'L9637D pin 4 (TX)', how:'f16. Dönüştürücünün HV1 pull-up\'ı 5 V\'a çeker.', type:'v', min:4.4, max:5.2, u:'V', fail:'0 V ise TX hattı GND\'ye kısa ya da dönüştürücü HV tarafı beslenmiyor (1.10). Bu durumda K de sürekli LOW olur.'},
+   {id:'2.8', t:'L9637D pin 1 (RX)', how:'f13. K boştayken HIGH olmalı.', type:'v', min:4.4, max:5.2, u:'V', fail:'0 V ise ya K LOW (2.6) ya da pin 1 GND\'ye kısa. pin 3 (VCC) yoksa da düşük çıkar.'},
+   {id:'2.9', t:'Dönüştürücü HV pini', how:'g6.', type:'v', min:4.8, max:5.2, u:'V', fail:'Voltaj modülü 5 V almıyor: j6 → alt + ray.'},
+   {id:'2.10', t:'Parçalar ısınmıyor', how:'1 dakika sonra 78L05, L9637D ve dönüştürücüye parmakla dokun. Hepsi oda sıcaklığında mı?', type:'yn', exp:'y', fail:'Isınan parçanın çevresinde kısa devre var ya da parça ters takılı. Beslemeyi hemen kes.'},
+  ]},
+ {n:'3', title:'L9637D (K-Line entegre) çalışıyor mu?',
+  intro:'Besleme bağlı, ESP yok. Atlama kablosunun bir ucunu GND rayına tak, diğer ucuyla aşağıdaki noktaya birkaç saniye dokun ve o sırada ölç.',
+  steps:[
+   {id:'3.1', t:'pin 4 (TX) → GND iken pin 6 (K)', how:'Kabloyla f16\'yı GND\'ye çek, e15\'i ölç. Entegre K hattını aşağı çekmeli.', type:'v', min:-0.1, max:1.4, u:'V', fail:'K inmiyor: entegrenin TX sürücüsü çalışmıyor. VCC (2.4), GND (2.5) ve VS (2.3) doğruysa adaptör yönü (pin-1 noktası) yanlış ya da entegre arızalı.'},
+   {id:'3.2', t:'pin 4 (TX) → GND iken pin 1 (RX)', how:'Aynı anda f13\'ü ölç. Entegre K\'daki düşüşü RX\'e yansıtmalı.', type:'v', min:-0.1, max:0.6, u:'V', fail:'K iniyor ama RX inmiyor: entegrenin RX çıkışı ya da pin 1 lehimi. Adaptörde pin 1 bacağını kontrol et.'},
+   {id:'3.3', t:'pin 6 (K) → GND iken pin 1 (RX)', how:'Bu kez kabloyla e15\'i (K) GND\'ye çek, f13\'ü ölç. ECU\'nun cevabını taklit eder.', type:'v', min:-0.1, max:0.6, u:'V', fail:'ECU cevabını ESP göremez: RX karşılaştırıcısı çalışmıyor. VCC ve pin 1 lehimine bak; değilse entegre arızalı.'},
+   {id:'3.4', t:'Kablo çekilince her şey geri yükseliyor', how:'Bırakınca K ≈ besleme, pin 1 ≈ 5 V oluyor mu?', type:'yn', exp:'y', fail:'Hat bırakıldıktan sonra LOW kalıyorsa pull-up (1.4) ya da entegre arızalı.'},
+  ]},
+ {n:'4', title:'Seviye dönüştürücü (voltaj modülü) çalışıyor mu?',
+  intro:'LV tarafı 3.3 V ister. Ekran kartını USB yazan Type-C\'den besle ve kablodan <b>sadece</b> GND (a5) ve 3V3 (a6) tellerini tak; TX/RX telleri (a7, a8) takılı olmasın. Kart yerine 2 kalem pil de olur: + → d6 (LV), − → GND.',
+  steps:[
+   {id:'4.1', t:'Dönüştürücü LV pini', how:'d6.', type:'v', min:2.8, max:3.5, u:'V', fail:'LV tarafı beslenmiyor: a6 → d6 ve a5 → d5. Kartın 3V3 pinini ölç.'},
+   {id:'4.2', t:'LV1 (d8)', how:'Boşta HIGH, ≈3.3 V.', type:'v', min:2.8, max:3.5, u:'V', fail:'≈5 V çıkıyorsa modül ters takılı (HV/LV yer değiştirmiş): ESP\'yi bu haliyle asla bağlama. 0 V ise LV1 GND\'ye kısa.'},
+   {id:'4.3', t:'LV2 (d7)', how:'Boşta HIGH, ≈3.3 V.', type:'v', min:2.8, max:3.5, u:'V', fail:'≈5 V: modül ters. 0 V: LV2 kısa ya da RX zinciri sürekli LOW (2.8\'e bak).'},
+   {id:'4.4', t:'LV1 → GND iken HV1 (g8)', how:'Kabloyla d8\'i GND\'ye çek, g8\'i ölç. TX kanalı 3.3 V → 5 V yönünü test eder.', type:'v', min:-0.1, max:0.5, u:'V', fail:'Dönüştürücünün TX kanalı geçirmiyor. HV ve LV beslemeleri doğruysa modülde o kanal (BSS138) arızalı: başka bir kanala geç (plakettekiler gibi HV3/LV3).'},
+   {id:'4.5', t:'LV1 → GND iken K (pin 6)', how:'Aynı anda e15. Tam zincir: ESP\'nin yapacağını sen yapıyorsun.', type:'v', min:-0.1, max:1.4, u:'V', fail:'HV1 iniyor ama K inmiyorsa i8 → i16 kablosu (1.9) ya da entegre (3.1).'},
+   {id:'4.6', t:'LV1 → GND iken LV2 (d7)', how:'Aynı anda d7. Sinyal entegreden geçip RX kanalından geri dönmeli. ESP\'nin GPIO43\'te göreceği değer budur.', type:'v', min:-0.1, max:0.5, u:'V', fail:'K ve pin 1 iniyor ama LV2 inmiyorsa: h13 → h7 kablosu ya da dönüştürücünün RX kanalı (HV2/LV2). HV2 (g7) iniyor mu, ona bak.'},
+   {id:'4.7', t:'Bırakınca LV1, LV2 tekrar ≈3.3 V', how:'Kabloyu çek, iki noktayı tekrar ölç.', type:'yn', exp:'y', fail:'LOW kalan kanal arızalı ya da pull-up\'ı yok.'},
+  ]},
+ {n:'5', title:'Devre sağlam: Waveshare tarafı',
+  intro:'1–4 hepsi yeşilse devre sağlamdır, sorun ESP bağlantısındadır. Şimdi TX/RX tellerini de tak, kartı USB Type-C\'den besle, OBD fişini araca tak, kontağı aç. Firmware "K inmiyor" çıkınca 5 sn TX LOW, 5 sn TX HIGH ölçüm penceresi açar (logda <code>ölç · TX LOW 5 sn</code>).',
+  steps:[
+   {id:'5.1', t:'"UART" yazan Type-C boş', how:'Kartın iki Type-C\'si var. Sadece "USB" yazana kablo takılı olmalı.', type:'yn', exp:'y', fail:'UART Type-C takılıyken FSUSB42 GPIO43/44\'ü CH343\'e verir, başlık kopar ve tam olarak "K inmiyor" çıkar. Kabloyu çıkar.'},
+   {id:'5.2', t:'Başlık RXD → a8 (LV1), başlık TXD → a7 (LV2)', how:'Başlık yazıları çaprazdır: RXD = GPIO44 = bizim TX, TXD = GPIO43 = bizim RX. Teli kartın başlığından breadboard deliğine bip ile takip et.', type:'yn', exp:'y', fail:'Teller ters: TXD\'yi LV1\'e takarsan ESP çıkışı dönüştürücünün RX çıkışıyla çakışır, K hiç inmez. Yer değiştir.'},
+   {id:'5.3', t:'Başlık GND ↔ devre GND', how:'Bip: kartın başlığındaki GND ↔ OBD 4 teli.', type:'yn', exp:'y', fail:'Ortak GND yok: a5 → d5 → j5 → alt − ray yolunu kontrol et.'},
+   {id:'5.4', t:'TX LOW penceresinde LV1 (a8)', how:'Logda "ölç · TX LOW" çıkınca ölç. ESP GPIO44\'ü sürüyorsa ≈0 V.', type:'v', min:-0.1, max:0.5, u:'V', fail:'ESP hattı sürmüyor: 5.1 ve 5.2. Değilse GPIO44 telinin kartta doğru pine oturduğunu kontrol et; kablonun konnektöründeki pin sırası yazıyla aynı olmayabilir.'},
+   {id:'5.5', t:'TX HIGH penceresinde LV1 (a8)', how:'"ölç · TX HIGH" penceresi.', type:'v', min:2.8, max:3.5, u:'V', fail:'Sürekli LOW ise TX teli GND\'ye değiyor ya da yanlış pinde.'},
+   {id:'5.6', t:'TX LOW penceresinde LV2 (a7)', how:'Aynı LOW pencere. 4.6 geçtiyse bu da inmeli.', type:'v', min:-0.1, max:0.5, u:'V', fail:'LV1 iniyor ama LV2 inmiyorsa araçta K hattı farklı davranıyor: OBD 7 teli doğru deliğe oturmuş mu, sökette başka cihaz (ELM327) takılı mı?'},
+   {id:'5.7', t:'Logda TX LOW: "TX pad 0, RX 0"', how:'Ölçüm penceresi satırı: <code>K ölç TX LOW: TX pad 0, RX 0</code>', type:'yn', exp:'y', fail:'Multimetre a7\'de 0 V görüyor ama log RX 1 diyorsa tel kartta GPIO43 pinine oturmuyor ya da UART Type-C takılı. "TX pad 1" ise ESP kendi pinini süremiyor: 5.1.'},
+  ]},
+];
+
+const KEY = 'kline-devre-test-v1';
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+
+const allSteps = SECTIONS.flatMap(s => s.steps);
+const vsVal = () => { const v = parseFloat(state['2.0']); return isFinite(v) && v > 0 ? v : 12; };
+const lim = x => typeof x === 'function' ? x(vsVal()) : x;
+const fmt = x => Math.abs(x) < 10 ? x.toFixed(2).replace(/\.?0+$/, '') : x.toFixed(0);
+
+function expText(s) {
+ if (s.type === 'yn') return 'Beklenen: ' + (s.exp === 'y' ? 'EVET' : 'HAYIR');
+ return 'Beklenen: ' + fmt(lim(s.min)) + ' … ' + fmt(lim(s.max)) + ' ' + s.u;
+}
+
+function result(s) {
+ const v = state[s.id];
+ if (v === undefined || v === '') return null;
+ if (s.type === 'yn') return v === s.exp;
+ const n = parseFloat(String(v).replace(',', '.'));
+ if (!isFinite(n)) return null;
+ return n >= lim(s.min) && n <= lim(s.max);
+}
+
+function render() {
+ const root = document.getElementById('steps');
+ root.innerHTML = '';
+ for (const sec of SECTIONS) {
+  const el = document.createElement('section');
+  el.className = 'sec';
+  el.innerHTML = `<div class="sec-head"><span class="num">BÖLÜM ${sec.n}</span><h2>${sec.title}</h2><p class="lede">${sec.intro}</p></div>`;
+  for (const s of sec.steps) {
+   const d = document.createElement('div');
+   d.className = 'step';
+   d.dataset.id = s.id;
+   const ctl = s.type === 'yn'
+    ? `<div class="ctl yn"><button data-v="y">Evet</button><button data-v="n">Hayır</button></div>`
+    : `<div class="ctl"><input inputmode="decimal" placeholder="—" value="${state[s.id] ?? ''}"><span class="u">${s.u}</span></div>`;
+   d.innerHTML = `<div class="id">${s.id}</div><div><div class="t">${s.t}</div><div class="how">${s.how}</div><div class="exp">${expText(s)}</div><div class="diag"><b>Bakılacak yer:</b> ${s.fail}</div></div>${ctl}`;
+   if (s.type === 'yn') {
+    d.querySelectorAll('button').forEach(b => b.onclick = () => {
+     state[s.id] = state[s.id] === b.dataset.v ? '' : b.dataset.v;
+     save(); update();
+    });
+   } else {
+    d.querySelector('input').oninput = e => { state[s.id] = e.target.value.trim(); save(); update(); };
+   }
+   el.appendChild(d);
+  }
+  root.appendChild(el);
+ }
+ update();
+}
+
+function update() {
+ let ok = 0, bad = 0, done = 0, firstBad = null;
+ for (const s of allSteps) {
+  const d = document.querySelector(`.step[data-id="${s.id}"]`);
+  const r = result(s);
+  d.classList.toggle('pass', r === true);
+  d.classList.toggle('fail', r === false);
+  d.querySelector('.exp').textContent = expText(s);
+  if (s.type === 'yn') d.querySelectorAll('button').forEach(b => b.classList.toggle('on', state[s.id] === b.dataset.v));
+  if (r !== null) done++;
+  if (r === true) ok++;
+  if (r === false) { bad++; if (!firstBad) firstBad = s; }
+ }
+ document.getElementById('sDone').textContent = `${done} / ${allSteps.length} ölçüldü`;
+ document.getElementById('sOk').textContent = `${ok} geçti`;
+ document.getElementById('sBad').textContent = `${bad} kaldı`;
+
+ const v = document.getElementById('verdict');
+ const circuitIds = allSteps.filter(s => /^[1-4]\./.test(s.id));
+ const circuitOk = circuitIds.every(s => result(s) === true);
+ v.className = 'card';
+ if (firstBad) {
+  v.classList.add('show', 'bad');
+  document.getElementById('vTitle').textContent = `İlk hatalı adım: ${firstBad.id} · ${firstBad.t}`;
+  document.getElementById('vBody').innerHTML = `<p style="margin:0">${firstBad.fail}</p><p class="lede" style="margin:8px 0 0">Bunu düzeltip bu adımı yeniden ölç. Sonraki adımlar bu hatanın sonucu olabilir.</p>`;
+ } else if (circuitOk) {
+  v.classList.add('show', 'good');
+  document.getElementById('vTitle').textContent = 'Devre sağlam: K-Line entegresi ve voltaj modülü çalışıyor';
+  document.getElementById('vBody').innerHTML = '<p style="margin:0">1–4. bölüm ESP olmadan geçti. Sorun Waveshare bağlantısında: 5. bölümü tamamla.</p>';
+ }
+}
+
+document.getElementById('reset').onclick = () => {
+ if (!confirm('Tüm ölçümler silinsin mi?')) return;
+ state = {}; save(); render();
+};
+
+document.getElementById('copy').onclick = async () => {
+ const lines = ['K-Line devre testi · ' + new Date().toLocaleString('tr-TR')];
+ for (const s of allSteps) {
+  const r = result(s);
+  if (r === null) continue;
+  const v = s.type === 'yn' ? (state[s.id] === 'y' ? 'evet' : 'hayır') : state[s.id] + ' ' + s.u;
+  lines.push(`${r ? 'OK ' : 'HATA'} ${s.id} ${s.t}: ${v} (${expText(s).replace('Beklenen: ', 'beklenen ')})`);
+ }
+ const txt = lines.join('\n');
+ try { await navigator.clipboard.writeText(txt); alert('Kopyalandı'); }
+ catch (e) { prompt('Kopyala:', txt); }
+};
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L9637D Ölçüm Animasyonu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+:root{
+ --bg:#f3f4f1; --fg:#1d2024; --muted:#5d636b; --line:#d5d8d2; --panel:#ffffff; --soft:#eceee9;
+ --accent:#b9770e; --ok:#2e8a4a; --warn:#b4472a;
+ --display:"Barlow Condensed","Arial Narrow",sans-serif;
+ --body:"Barlow",system-ui,sans-serif;
+ --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; color-scheme:dark}}
+:root[data-theme="dark"]{
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:400 15px/1.5 var(--body);margin:0}
+.wrap{max-width:1560px;margin:0 auto;padding:18px 16px 50px;display:grid;gap:14px}
+header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:10px}
+.eyebrow{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font:700 clamp(26px,4vw,38px)/1.05 var(--display);margin:2px 0 0}
+code{font-family:var(--mono);font-size:.9em}
+a{color:var(--accent)}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0}
+.seg button.on.ok{background:var(--ok);color:#fff}
+.seg button.on.bad{background:var(--warn);color:#fff}
+
+/* Adım şeridi */
+.strip{display:flex;flex-wrap:wrap;gap:4px 14px}
+.strip .grp{display:flex;gap:3px;align-items:center}
+.strip .grp b{font:600 11px var(--mono);color:var(--muted);margin-right:4px;text-transform:uppercase;letter-spacing:.05em}
+.strip button{width:26px;height:26px;padding:0;border-radius:50%;font:600 11px var(--mono);border:1.5px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+.strip button.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.strip button.done{background:var(--soft)}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}
+.fig{background:#e4e7e1;border:1px solid var(--line);border-radius:10px;overflow:auto}
+.fig svg{display:block;width:100%;min-width:760px;height:auto}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:12px;position:sticky;top:10px;max-height:calc(100vh - 20px);overflow:auto}
+.meta{display:flex;justify-content:space-between;font:500 12px var(--mono);color:var(--muted)}
+.bar{height:5px;background:var(--soft);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);transition:width .25s}
+.ttl{font:700 26px/1.1 var(--display);margin:0}
+.do ol{margin:4px 0 0;padding-left:20px}
+.do p{margin:0}
+.lbl{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:10px;font:500 13px var(--mono)}
+.expect{background:color-mix(in srgb,var(--ok) 12%,transparent);border:1px solid color-mix(in srgb,var(--ok) 45%,transparent);border-radius:8px;padding:8px 12px}
+.expect .lbl{color:var(--ok)}
+.fault{background:color-mix(in srgb,var(--warn) 8%,transparent);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);border-radius:8px;padding:8px 12px;font-size:14px}
+.fault .lbl{color:var(--warn)}
+.fault.on{background:color-mix(in srgb,var(--warn) 18%,transparent);border-color:var(--warn)}
+.panel.badmode .expect{opacity:.55}
+button{font:600 14px var(--body);border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:8px;padding:8px 14px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.4;cursor:default}
+.nav-btns{display:flex;gap:8px;justify-content:space-between}
+table.dt{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px}
+table.dt th,table.dt td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+table.dt th{font:600 11px var(--mono);text-transform:uppercase;color:var(--muted)}
+table.dt td.b{color:var(--warn);font-weight:600;white-space:nowrap}
+table.dt td.g{color:var(--ok);font-weight:600;white-space:nowrap}
+
+/* SVG */
+.silk{font:700 12px var(--mono);fill:#f2f5f8}
+.lab{font:600 13px var(--mono);fill:#2b2e33}
+.small{font:500 11px var(--mono);fill:#4d535b}
+.trace{fill:none;stroke:#d9b44a;stroke-width:3;stroke-linejoin:round;opacity:.85}
+.w{fill:none;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+#wires.off{display:none}
+#src.dim{opacity:.3}
+#wires.anim .conn{animation:fade .35s both;animation-delay:var(--d)}
+#wires.anim .conn path{stroke-dasharray:1;stroke-dashoffset:1;animation:draw .55s ease-out forwards;animation-delay:var(--d)}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes draw{to{stroke-dashoffset:0}}
+.flow{fill:none;stroke:#ffb020;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:10 9;animation:march .7s linear infinite;filter:drop-shadow(0 0 4px #ffb020)}
+@keyframes march{to{stroke-dashoffset:-19}}
+.jump path{fill:none;stroke:#ff8a00;stroke-width:6;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:draw .6s ease-out forwards}
+.jump circle{fill:#ff8a00;animation:fade .3s .5s both}
+.ring{fill:none;stroke-width:3;transform-box:fill-box;transform-origin:center;animation:ring 1.3s ease-out infinite}
+@keyframes ring{0%{transform:scale(.6);opacity:1}100%{transform:scale(2.2);opacity:0}}
+.blink{animation:blink 1s ease-in-out infinite}
+@keyframes blink{50%{opacity:.35}}
+.pop{animation:fade .3s both}
+.hot{fill:#e53935;animation:blink .8s ease-in-out infinite;filter:drop-shadow(0 0 10px #ff5a3c)}
+.wave{fill:none;stroke:#e53935;stroke-width:3;stroke-linecap:round;animation:rise 1.2s ease-in infinite}
+@keyframes rise{from{transform:translateY(8px);opacity:0}50%{opacity:1}to{transform:translateY(-14px);opacity:0}}
+#needle{transform-origin:1045px 375px;transition:transform .5s cubic-bezier(.3,1.4,.6,1)}
+
+@media (max-width:1100px){
+ .main{grid-template-columns:1fr}
+ .panel{position:static;max-height:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <header>
+  <div>
+   <div class="eyebrow">K-Line OBD · L9637D tek başına test</div>
+   <h1>L9637D Modül Ölçüm Animasyonu</h1>
+  </div>
+  <div class="tools">
+   <div class="seg" role="group" aria-label="Çip durumu">
+    <button id="mGood" class="ok">Sağlam çip</button>
+    <button id="mBad" class="bad">Arızalı çip</button>
+   </div>
+   <button id="play" class="primary">▶ Oynat</button>
+   <button id="replay">↻ Tekrar</button>
+  </div>
+ </header>
+
+ <div class="strip" id="strip"></div>
+
+ <div class="main">
+  <div class="fig">
+   <svg viewBox="0 0 1190 670" role="img" aria-label="L9637D modülü, besleme, multimetre ve problar">
+    <g id="src"></g>
+    <g id="wires" class="off"></g>
+    <g id="board"></g>
+    <g id="flows"></g>
+    <g id="jumps"></g>
+    <g id="levels"></g>
+    <g id="fx"></g>
+    <g id="meter"></g>
+    <path id="cb_black" class="w" stroke="#1b1b1b" stroke-width="5"/>
+    <path id="cb_red" class="w" stroke="#d32f2f" stroke-width="5"/>
+    <g id="pr_black"></g>
+    <g id="pr_red"></g>
+   </svg>
+  </div>
+
+  <div class="panel" id="panel">
+   <div>
+    <div class="meta"><span id="grp"></span><span id="cnt"></span></div>
+    <div class="bar"><i id="prog"></i></div>
+   </div>
+   <h2 class="ttl" id="ttl"></h2>
+   <div><div class="lbl">Ne yap</div><div class="do" id="do"></div></div>
+   <div class="kv">
+    <div><div class="lbl">Multimetre</div><div id="mm"></div></div>
+    <div><div class="lbl">Problar</div><div id="pp"></div></div>
+   </div>
+   <div class="expect"><div class="lbl">Sağlam çipte</div><div id="exp"></div></div>
+   <div class="fault" id="fault"><div class="lbl">Arızalı çipte</div><div id="bad"></div></div>
+   <div class="nav-btns">
+    <button id="prev">← Geri</button>
+    <button id="next" class="primary">İleri →</button>
+   </div>
+  </div>
+ </div>
+</div>
+
+<script>
+// Header pin merkezleri (adaptör kartı): üst sıra 8-7-6-5, alt sıra 1-2-3-4
+const P = {1:[430,455],2:[530,455],3:[630,455],4:[730,455],5:[730,185],6:[630,185],7:[530,185],8:[430,185]};
+const LEAD = {1:545,2:585,3:625,4:665,5:665,6:625,7:585,8:545};
+const NAME = {1:'RX',2:'LO',3:'VCC',4:'TX',5:'GND',6:'K',7:'VS',8:'LI'};
+const PARK = {red:[1110,640], black:[1010,640]};
+const JACK = {red:[1095,480], black:[995,480]};
+const MODE = {
+ off:{a:-90, t:'Kapalı', open:''},
+ dcv:{a:-30, t:'DC gerilim (V⎓)', open:'0.00'},
+ ohm:{a:30, t:'Direnç (Ω)', open:'OL'},
+ dio:{a:90, t:'Diyot (⊳|)', open:'OL'},
+};
+
+const DECIDE = `<table class="dt"><tr><th>Gördüğün</th><th>Sonuç</th></tr>
+<tr><td>Adım 3–4: 0,00 V, bip ya da 10 Ω altı</td><td class="b">Arızalı</td></tr>
+<tr><td>Adım 6–7: besleme bağlanınca gerilim çöküyor</td><td class="b">Arızalı</td></tr>
+<tr><td>Adım 8: çip ısınıyor</td><td class="b">Arızalı</td></tr>
+<tr><td>Adım 11: TX → GND iken K inmiyor</td><td class="b">TX sürücüsü ölü</td></tr>
+<tr><td>Adım 13: K → GND iken RX inmiyor</td><td class="b">RX alıcısı ölü</td></tr>
+<tr><td>Hepsi beklenen aralıkta</td><td class="g">Çip sağlam</td></tr></table>
+<p style="margin-top:8px">Çip sağlamsa arıza seviye dönüştürücü, kablo ya da ESP tarafındadır. Sıradaki şüpheli: <a href="seviye-donusturucu-olcum-animasyonu.html">seviye dönüştürücü ölçüm animasyonu</a>.</p>`;
+
+// Adımlar. red/black: prob pini, sweep: bir prob pinleri sırayla gezer, lv: TX/K/RX seviyesi, flow: çip içi sinyal yolu
+const STEPS = [
+ {g:'Hazırlık', t:'Modülü devreden ayır', fx:'iso',
+  do:'<p>L9637D modülünü breadboard\'dan ya da plaketten çıkar veya bütün kablolarını sök. ESP, seviye dönüştürücü ve OBD fişi bağlı olmasın. Böylece ölçtüğün her şey yalnızca çipe ait olur.</p>',
+  exp:'Modül tek başına duruyor, hiçbir pine kablo bağlı değil.',
+  bad:{note:'Modül devredeyken ölçersen ESP pini ya da dönüştürücü sonucu değiştirir. "Arızalı" sandığın şey bir kablo olabilir.'}},
+ {g:'Hazırlık', t:'Pin 1\'i ve pin sırasını bul', fx:'pins',
+  do:'<p>Çipin üstündeki nokta ya da çentik <b>pin 1</b>\'i gösterir. Numaralar saat yönünün tersine artar: alt sıra soldan sağa 1–4, üst sıra sağdan sola 5–8. Adaptör kartının header pinleri çip bacaklarıyla aynı sıradadır. Kartın üstünde etiket varsa etikete göre git.</p>',
+  exp:'1 RX · 2 LO · 3 VCC · 4 TX · 5 GND · 6 K · 7 VS · 8 LI',
+  bad:{note:'Adaptöre ters lehimlenmiş bir çip (nokta yanlış köşede) hiçbir testi geçemez ama bozuk değildir. Önce yönü doğrula.'}},
+
+ {g:'Enerjisiz', t:'Diyot testi: koruma diyotları', mode:'dio', red:5, u:'V', dig:2,
+  sweep:{who:'black', pins:[1,2,3,4,6,7,8], vals:[0.62,0.64,0.55,0.63,0.58,0.52,0.66]},
+  do:'<p>Bütün beslemeler sökülü olsun. Multimetreyi <b>diyot</b> moduna al. <b>Dikkat: bu adımda kırmızı prob GND\'de (pin 5) kalır.</b> Siyah probla diğer pinlere sırayla değ.</p>',
+  exp:'Her pinde yaklaşık 0,3 … 0,9 V. Ekrandaki değerler örnektir. Bir iki pinde OL görmek tek başına arıza sayılmaz.',
+  bad:{vals:{6:0}, beepPin:6, note:'<b>0,00 V ve bip</b>: o pin içeriden GND\'ye kısa, çip arızalı. En sık bozulan pinler K (6) ve VS (7), çünkü araçtaki gerilim darbeleri bunlara gelir. Emin olamazsan aynı ölçümü sağlam bir L9637D ile karşılaştır.'}},
+ {g:'Enerjisiz', t:'Ω testi: besleme pinleri kısa mı?', mode:'ohm', black:5, u:'Ω', dig:1,
+  sweep:{who:'red', pins:[7,3,6], vals:['OL','OL','OL']},
+  do:'<p>Multimetreyi <b>Ω</b> moduna al. Siyah prob pin 5\'te (GND) dursun, kırmızıyla sırayla pin 7 (VS), pin 3 (VCC) ve pin 6 (K)\'ya değ.</p>',
+  exp:'Birkaç kΩ\'un üstü ya da OL. Modülde kondansatör varsa değer yavaşça yükselir, bu normaldir.',
+  bad:{vals:{7:0.8}, note:'<b>10 Ω\'un altı</b>: besleme pini GND\'ye kısa. Böyle bir çip beslemeyi çökertir ve ısınır, arızalıdır. Modülde kondansatör varsa önce onun kısa olmadığından emin ol.'}},
+
+ {g:'Besleme', t:'Test düzeneğini kur', wires:'draw',
+  do:`<ol>
+   <li>İki kaynağın <b>−</b> ucu → <b>pin 5 (GND)</b>. Ortak GND şart.</li>
+   <li>12 V adaptörün + ucu → <b>pin 7 (VS)</b></li>
+   <li>5 V kaynağın (USB şarj ya da 78L05) + ucu → <b>pin 3 (VCC)</b></li>
+   <li><b>510 Ω</b>: pin 6 (K) → 12 V (K hattı pull-up\'ı)</li>
+   <li><b>10 kΩ</b>: pin 4 (TX) → 5 V</li>
+   <li><b>10 kΩ</b>: pin 1 (RX) → 5 V</li>
+  </ol><p style="margin-top:6px">Pin 2 (LO) ve pin 8 (LI) boş kalır.</p>`,
+  exp:'Bağlantılar şekildeki gibi. Henüz ölçüm yok.',
+  bad:{note:'12 V\'u pin 3\'e (VCC) vermek çipi yakar. TX\'i 5 V\'a doğrudan değil 10 kΩ üzerinden bağla, yoksa sonraki adımda GND\'ye çektiğinde 5 V\'u kısa devre edersin.'}},
+ {g:'Besleme', t:'Pin 7 (VS)', wires:true, mode:'dcv', black:5, red:7, v:12.0, u:'V', dig:2,
+  do:'<p>Multimetreyi <b>DC V</b>\'ye al. Siyah prob pin 5\'te, kırmızı prob pin 7\'de. Breadboard sırasından değil, doğrudan pinden ölç.</p>',
+  exp:'Adaptör gerilimine yakın: 11 … 14 V.',
+  bad:{v:1.3, note:'Adaptör bağlıyken VS birkaç volta düşüyorsa çip VS\'yi içeriden kısa devre ediyor, yani arızalı. 0 V okuyorsan sorun kabloda ya da adaptörde, çipte değil.'}},
+ {g:'Besleme', t:'Pin 3 (VCC)', wires:true, mode:'dcv', black:5, red:3, v:5.0, u:'V', dig:2,
+  do:'<p>Kırmızı prob pin 3\'e geçsin. Bu pin, breadboard\'da daha önce boşta kalmıştı.</p>',
+  exp:'4,8 … 5,2 V',
+  bad:{v:0.6, note:'5 V kaynağı bağlıyken VCC 0,x V\'a çöküyorsa çipin lojik tarafı kısa, yani arızalı. 0 V ise kablo.'}},
+ {g:'Besleme', t:'Isı kontrolü', wires:true, mode:'dcv', fx:'heat',
+  do:'<p>Besleme açıkken 30 saniye bekle, sonra parmağını çipin üstüne koy.</p>',
+  exp:'Çip oda sıcaklığında, ısınmıyor.',
+  bad:{note:'Çip ısınıyor ya da yanık kokusu geliyorsa içeride kısa var. Beslemeyi hemen kes, çip arızalı.'}},
+
+ {g:'Fonksiyon', t:'TX boştayken pin 6 (K)', wires:true, mode:'dcv', black:5, red:6, v:12.0, u:'V', dig:2,
+  lv:{tx:'H',k:'H',rx:'H'},
+  do:'<p>TX, 10 kΩ ile HIGH tutuluyor. Bu durumda çip K hattını serbest bırakmalı, 510 Ω da hattı 12 V\'a çekmeli.</p>',
+  exp:'≈ VS (VS − 0,5 V … VS)',
+  bad:{v:0.4, lv:{k:'L',rx:'L'}, note:'TX HIGH olduğu halde K düşük: çip K hattını bırakmıyor (sürücü kısa). Önce 510 Ω\'u kontrol et: beslemeyi kes, pin 7 ile pin 6 arası ≈ 510 Ω olmalı. Direnç sağlamsa çip arızalıdır.'}},
+ {g:'Fonksiyon', t:'TX boştayken pin 1 (RX)', wires:true, mode:'dcv', black:5, red:1, v:5.0, u:'V', dig:2,
+  lv:{tx:'H',k:'H',rx:'H'},
+  do:'<p>Kırmızı prob pin 1\'e. K hattı HIGH olduğu için RX de HIGH olmalı.</p>',
+  exp:'4,5 … 5,2 V',
+  bad:{v:0.1, lv:{rx:'L'}, note:'K yüksekken RX düşük: RX çıkışı LOW\'da takılı, çip arızalı (ya da pin 1 GND\'ye değiyor).'}},
+ {g:'Fonksiyon', t:'TX → GND: K iniyor mu?', wires:true, mode:'dcv', black:5, red:6, v:0.8, u:'V', dig:2, jump:'tx',
+  lv:{tx:'L',k:'L',rx:'L'}, flow:['tx'],
+  do:'<p>Turuncu atlama kablosuyla <b>pin 4\'ü (TX) GND\'ye</b> çek. Kabloyu tutarken K\'yı ölç. Bu, ESP\'nin K hattına bit göndermesinin aynısıdır.</p>',
+  exp:'1,4 V\'un altı',
+  bad:{v:12.0, lv:{tx:'L',k:'H',rx:'H'}, flow:[], note:'K 12 V\'ta kalıyor: TX sürücüsü çalışmıyor. VS, VCC ve GND doğru ölçüldüyse çip arızalı.'}},
+ {g:'Fonksiyon', t:'TX → GND: RX yankısı', wires:true, mode:'dcv', black:5, red:1, v:0.1, u:'V', dig:2, jump:'tx',
+  lv:{tx:'L',k:'L',rx:'L'}, flow:['tx','rx'],
+  do:'<p>Kablo pin 4\'teyken pin 1\'i ölç. K\'daki düşüş alıcıdan geçip RX\'e yansımalı. K-Line\'da gönderdiğin her bit sana geri döner.</p>',
+  exp:'0,6 V\'un altı',
+  bad:{v:5.0, lv:{tx:'L',k:'L',rx:'H'}, flow:['tx'], note:'K iniyor ama RX inmiyor: alıcı ölü. Sonraki adım bunu kesinleştirir.'}},
+ {g:'Fonksiyon', t:'K → GND: RX iniyor mu?', wires:true, mode:'dcv', black:5, red:1, v:0.1, u:'V', dig:2, jump:'k',
+  lv:{tx:'H',k:'L',rx:'L'}, flow:['rx'],
+  do:'<p>TX kablosunu kaldır. Atlama kablosuyla <b>pin 6\'yı (K) pin 5\'e (GND)</b> birkaç saniye bağla ve pin 1\'i ölç. Bu, ECU\'nun cevap göndermesinin taklidi ve <b>en önemli test</b>. 510 Ω bu sırada yaklaşık 0,3 W harcar, kabloyu uzun tutma.</p>',
+  exp:'0,6 V\'un altı',
+  bad:{v:5.0, lv:{tx:'H',k:'L',rx:'H'}, flow:[], note:'<b>K 0 V olduğu halde RX 5 V\'ta kalıyor: RX alıcısı arızalı.</b> ECU cevap verse de ESP hiçbir şey göremez. "K inmiyor" belirtisinin çipten kaynaklanan hali budur. VCC 5 V ölçüldüyse çipi değiştir.'}},
+ {g:'Fonksiyon', t:'Bırak: hat geri kalkıyor mu?', wires:true, mode:'dcv', black:5, u:'V', dig:2,
+  sweep:{who:'red', pins:[6,1], vals:[12.0,5.0]}, lv:{tx:'H',k:'H',rx:'H'},
+  do:'<p>Atlama kablosunu çek. Kırmızı probla önce pin 6\'yı (K), sonra pin 1\'i (RX) ölç.</p>',
+  exp:'K ≈ VS, RX ≈ 5 V',
+  bad:{vals:{6:0.3,1:0.1}, lv:{k:'L',rx:'L'}, note:'Kablo çekildiği halde K ya da RX LOW\'da kalıyor: çip hattı tutuyor, arızalı.'}},
+
+ {g:'Sonuç', t:'Karar', wires:true, fx:'verdict',
+  do:DECIDE,
+  exp:'Bütün adımlar beklenen aralıktaysa L9637D sağlam.',
+  bad:{note:'Tek bir adım bile "arızalı" çıktıysa çipi değiştir. L9637D ucuzdur, değişim ve tekrar test birkaç dakika sürer.'}},
+];
+
+const $ = id => document.getElementById(id);
+const KEY = 'l9637d-olcum-anim-v1';
+let cur = 0, bad = false, token = 0, playing = false, playT = 0;
+try { const s = JSON.parse(localStorage.getItem(KEY)) || {}; cur = Math.min(STEPS.length - 1, s.cur | 0); bad = !!s.bad; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify({cur, bad})); } catch (e) {} };
+
+// ---- Statik çizim ----
+function res(x, y1, y2, label, side) {
+ const m = (y1 + y2) / 2;
+ return `<path class="w" stroke="#80868e" stroke-width="3" pathLength="1" d="M${x} ${y1} V${m - 20}"/>
+  <path class="w" stroke="#80868e" stroke-width="3" pathLength="1" d="M${x} ${m + 20} V${y2}"/>
+  <rect x="${x - 8}" y="${m - 20}" width="16" height="40" rx="6" fill="#d8c9a3" stroke="#8a7a52"/>
+  <rect x="${x - 8}" y="${m - 13}" width="16" height="4" fill="#6d4c41"/><rect x="${x - 8}" y="${m - 4}" width="16" height="4" fill="#c62828"/>
+  <text x="${side > 0 ? x + 14 : x - 14}" y="${m + 4}" text-anchor="${side > 0 ? 'start' : 'end'}" class="lab">${label}</text>`;
+}
+const dot = (x, y, c) => `<circle cx="${x}" cy="${y}" r="5" fill="${c}"/>`;
+
+function drawStatic() {
+ $('src').innerHTML = `
+  <rect x="30" y="30" width="110" height="76" rx="8" fill="#2b2e33"/>
+  <text x="85" y="66" text-anchor="middle" style="font:700 22px var(--display);fill:#fff">12 V</text>
+  <text x="85" y="88" text-anchor="middle" style="font:500 11px var(--mono);fill:#c9ccd1">adaptör / pil</text>
+  ${dot(140, 70, '#d32f2f')}${dot(50, 106, '#9aa0a6')}
+  <rect x="30" y="520" width="110" height="76" rx="8" fill="#2b2e33"/>
+  <text x="85" y="556" text-anchor="middle" style="font:700 22px var(--display);fill:#fff">5 V</text>
+  <text x="85" y="578" text-anchor="middle" style="font:500 11px var(--mono);fill:#c9ccd1">USB / 78L05</text>
+  ${dot(140, 560, '#1976d2')}${dot(85, 596, '#9aa0a6')}`;
+
+ const conn = (inner, i) => `<g class="conn" style="--d:${(i * 0.55).toFixed(2)}s">${inner}</g>`;
+ $('wires').innerHTML = [
+  `<path class="w" stroke="#212121" pathLength="1" d="M18 620 H880"/><path class="w" stroke="#212121" pathLength="1" d="M50 106 V118 H18 V620"/><path class="w" stroke="#212121" pathLength="1" d="M85 596 V620"/>
+   <path class="w" stroke="#212121" pathLength="1" d="M730 176 V120 H880 V620"/>${dot(880, 620, '#212121')}<text x="150" y="645" class="lab" style="fill:#212121">GND</text>`,
+  `<path class="w" stroke="#d32f2f" pathLength="1" d="M140 70 H650"/><path class="w" stroke="#d32f2f" pathLength="1" d="M530 70 V176"/>${dot(530, 70, '#d32f2f')}<text x="150" y="58" class="lab" style="fill:#d32f2f">+12 V</text>`,
+  `<path class="w" stroke="#1976d2" pathLength="1" d="M140 560 H760"/><path class="w" stroke="#1976d2" pathLength="1" d="M630 464 V560"/>${dot(630, 560, '#1976d2')}<text x="150" y="550" class="lab" style="fill:#1976d2">+5 V</text>`,
+  res(630, 176, 70, '510 Ω', -1) + dot(630, 70, '#d32f2f'),
+  res(730, 464, 560, '10 kΩ', 1) + dot(730, 560, '#1976d2'),
+  res(430, 464, 560, '10 kΩ', 1) + dot(430, 560, '#1976d2'),
+ ].map(conn).join('');
+
+ let b = `<rect x="380" y="150" width="440" height="340" rx="10" fill="#1f6f4a" stroke="#14513a" stroke-width="2"/>`;
+ for (const n of [8, 7, 6, 5]) b += `<path class="trace" d="M${P[n][0]} 193 V225 L${LEAD[n]} 245 V252"/>`;
+ for (const n of [1, 2, 3, 4]) b += `<path class="trace" d="M${P[n][0]} 447 V415 L${LEAD[n]} 395 V388"/>`;
+ for (const n of [8, 7, 6, 5]) b += `<rect x="${LEAD[n] - 6}" y="250" width="12" height="16" fill="#c3c7cc"/>`;
+ for (const n of [1, 2, 3, 4]) b += `<rect x="${LEAD[n] - 6}" y="374" width="12" height="16" fill="#c3c7cc"/>`;
+ b += `<rect id="chip" x="520" y="265" width="160" height="110" rx="4" fill="#1e2124"/>
+  <circle id="dot1" cx="531" cy="365" r="4" fill="#8a8f96"/>
+  <g id="ov" stroke="#9aa3ad" stroke-width="2" fill="none">
+   <path d="M665 375 V300 H545 V375"/><path d="M625 300 V265"/>
+   <polygon points="657,346 673,346 665,326" fill="#9aa3ad"/>
+   <polygon points="537,322 553,322 545,342" fill="#9aa3ad"/>
+   <text x="590" y="290" text-anchor="middle" stroke="none" style="font:700 12px var(--mono);fill:#d7dbe0">L9637D</text>
+   <text x="652" y="341" text-anchor="end" stroke="none" style="font:500 9px var(--mono);fill:#b9c0c8">TX sürücü</text>
+   <text x="556" y="341" stroke="none" style="font:500 9px var(--mono);fill:#b9c0c8">RX alıcı</text>
+  </g>`;
+ for (let n = 1; n <= 8; n++) {
+  const [x, y] = P[n];
+  b += `<rect x="${x - 9}" y="${y - 9}" width="18" height="18" rx="2" fill="#d9b44a" stroke="#8a6d1c"/><circle cx="${x}" cy="${y}" r="4" fill="#3b2f10"/>
+   <text x="${x - 15}" y="${y + 4}" text-anchor="end" class="silk">${n} ${NAME[n]}</text>`;
+ }
+ b += `<text x="600" y="482" text-anchor="middle" style="font:500 11px var(--mono);fill:#cfe3d8">L9637D · SO-8 → DIP adaptör</text>`;
+ $('board').innerHTML = b;
+
+ $('flows').innerHTML = `<path id="f_tx" class="flow" d="M730 443 V415 L665 395 V300 H625 V245 L630 225 V197"/>
+  <path id="f_rx" class="flow" d="M630 197 V225 L625 245 V300 H545 V395 L430 415 V443"/>`;
+
+ $('jumps').innerHTML = `<g id="j_tx" class="jump"><path pathLength="1" d="M730 455 C800 470 830 570 800 620"/><circle cx="730" cy="455" r="6"/><circle cx="800" cy="620" r="6"/>
+   <text x="786" y="603" text-anchor="end" style="font:700 14px var(--mono);fill:#e07000">TX → GND</text></g>
+  <g id="j_k" class="jump"><path pathLength="1" d="M630 185 C650 140 710 140 730 185"/><circle cx="630" cy="185" r="6"/><circle cx="730" cy="185" r="6"/>
+   <text x="680" y="138" text-anchor="middle" style="font:700 14px var(--mono);fill:#e07000">K → GND</text></g>`;
+
+ const badge = (id, x, y) => `<g id="${id}" style="display:none"><rect x="${x}" y="${y}" width="76" height="22" rx="11"/><text x="${x + 38}" y="${y + 15}" text-anchor="middle" style="font:700 12px var(--mono)"></text></g>`;
+ $('levels').innerHTML = badge('lv_k', 542, 133) + badge('lv_tx', 788, 444) + badge('lv_rx', 330, 499);
+
+ const ml = (k, a, label) => {
+  const r = a * Math.PI / 180, x = 1045 + 74 * Math.sin(r), y = 375 - 74 * Math.cos(r) + 5;
+  return `<text id="ml_${k}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" style="font:700 13px var(--mono)">${label}</text>`;
+ };
+ $('meter').innerHTML = `
+  <rect x="920" y="150" width="250" height="390" rx="22" fill="#f0b400" stroke="#b88a00" stroke-width="2"/>
+  <rect x="935" y="165" width="220" height="360" rx="14" fill="#2a2d32"/>
+  <rect x="950" y="182" width="190" height="84" rx="6" fill="#bfcfae" stroke="#8e9c80"/>
+  <text id="lcdM" x="958" y="199" style="font:600 10px var(--mono);fill:#3d4a35"></text>
+  <text id="beep" x="958" y="258" style="font:700 11px var(--mono);fill:#b4472a;display:none">♪ BİP</text>
+  <text id="lcdV" x="1097" y="246" text-anchor="end" style="font:700 40px var(--mono);fill:#1d2420"></text>
+  <text id="lcdU" x="1102" y="246" style="font:600 16px var(--mono);fill:#1d2420"></text>
+  <text x="1045" y="288" text-anchor="middle" style="font:600 10px var(--mono);fill:#8a9099;letter-spacing:.2em">MULTİMETRE</text>
+  ${ml('off', -90, 'OFF')}${ml('dcv', -30, 'V⎓')}${ml('ohm', 30, 'Ω')}${ml('dio', 90, '⊳|')}
+  <circle cx="1045" cy="375" r="50" fill="#15171a" stroke="#555" stroke-width="3"/>
+  <circle cx="1045" cy="375" r="32" fill="#3a3e44"/>
+  <line id="needle" x1="1045" y1="375" x2="1045" y2="333" stroke="#f0b400" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="995" cy="480" r="13" fill="#111" stroke="#666" stroke-width="3"/><circle cx="995" cy="480" r="5" fill="#444"/>
+  <circle cx="1095" cy="480" r="13" fill="#111" stroke="#d32f2f" stroke-width="3"/><circle cx="1095" cy="480" r="5" fill="#444"/>
+  <text x="995" y="458" text-anchor="middle" style="font:600 10px var(--mono);fill:#bbb">COM</text>
+  <text x="1095" y="458" text-anchor="middle" style="font:600 10px var(--mono);fill:#bbb">VΩ</text>`;
+
+ // Prob: uç (0,0) noktasında, sap sağ üste doğru
+ const probe = (c, d) => `<line x1="0" y1="0" x2="13" y2="-13" stroke="#cfd3d8" stroke-width="3.5" stroke-linecap="round"/>
+  <g transform="rotate(-45)"><rect x="17" y="-6.5" width="60" height="13" rx="5" fill="${c}" stroke="${d}"/><rect x="17" y="-10" width="5" height="20" rx="2" fill="${c}" stroke="${d}"/></g>`;
+ $('pr_red').innerHTML = probe('#d32f2f', '#7a1414');
+ $('pr_black').innerHTML = probe('#262626', '#000');
+}
+
+// ---- Animasyon yardımcıları ----
+const pos = {red: [...PARK.red], black: [...PARK.black]};
+function setProbe(c, x, y) {
+ pos[c] = [x, y];
+ $('pr_' + c).setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)})`);
+ const [jx, jy] = JACK[c], sx = x + 54, sy = y - 54;
+ $('cb_' + c).setAttribute('d', `M${sx.toFixed(1)} ${sy.toFixed(1)} C${(sx + 70).toFixed(1)} ${(sy - 10).toFixed(1)} ${jx} ${jy + 170} ${jx} ${jy}`);
+}
+function moveProbe(c, to, ms = 650) {
+ const tk = token, from = [...pos[c]];
+ return new Promise(done => {
+  const t0 = performance.now();
+  const f = now => {
+   if (tk !== token) return done(false);
+   const k = Math.min(1, (now - t0) / ms), e = k < .5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+   setProbe(c, from[0] + (to[0] - from[0]) * e, from[1] + (to[1] - from[1]) * e);
+   k < 1 ? requestAnimationFrame(f) : done(true);
+  };
+  requestAnimationFrame(f);
+ });
+}
+const wait = ms => { const tk = token; return new Promise(r => setTimeout(() => r(tk === token), ms)); };
+const svgEl = html => { const g = document.createElementNS('http://www.w3.org/2000/svg', 'g'); g.innerHTML = html; $('fx').appendChild(g); return g; };
+
+function setMode(m) {
+ $('needle').style.transform = `rotate(${MODE[m].a}deg)`;
+ for (const k in MODE) $('ml_' + k).style.fill = k === m ? '#f0b400' : '#9aa0a8';
+ $('lcdM').textContent = m === 'off' ? '' : MODE[m].t.toUpperCase();
+ lcd(MODE[m].open, 0, m === 'off' ? '' : m === 'ohm' ? 'Ω' : 'V');
+}
+function lcd(v, dig, u, beep = false) {
+ $('lcdU').textContent = u || '';
+ $('beep').style.display = beep ? '' : 'none';
+ if (typeof v !== 'number') { $('lcdV').textContent = v; return; }
+ const tk = token, t0 = performance.now();
+ const f = now => {
+  if (tk !== token) return;
+  const k = Math.min(1, (now - t0) / 450);
+  $('lcdV').textContent = (v * (1 - (1 - k) ** 3)).toFixed(dig);
+  if (k < 1) requestAnimationFrame(f);
+ };
+ requestAnimationFrame(f);
+}
+function hit(c, pin) {
+ document.querySelectorAll('.hit-' + c).forEach(e => e.remove());
+ const [x, y] = P[pin];
+ svgEl(`<circle class="ring hit-${c}" cx="${x}" cy="${y}" r="14" stroke="${c === 'red' ? '#d32f2f' : '#262626'}"/>`);
+}
+function wires(w) {
+ const el = $('wires');
+ el.classList.toggle('off', !w);
+ $('src').classList.toggle('dim', !w);
+ el.classList.remove('anim');
+ if (w === 'draw') { el.getBoundingClientRect(); el.classList.add('anim'); }
+}
+function jump(j) {
+ for (const k of ['tx', 'k']) {
+  const g = $('j_' + k);
+  g.style.display = j === k ? '' : 'none';
+  if (j === k) { g.classList.remove('jump'); g.getBoundingClientRect(); g.classList.add('jump'); }
+ }
+}
+function flows(list) { for (const k of ['tx', 'rx']) $('f_' + k).style.display = list.includes(k) ? '' : 'none'; }
+function levels(lv) {
+ const V = {tx: 5, k: 12, rx: 5};
+ for (const k of ['tx', 'k', 'rx']) {
+  const g = $('lv_' + k);
+  if (!lv) { g.style.display = 'none'; continue; }
+  const h = lv[k] === 'H';
+  g.style.display = '';
+  g.querySelector('rect').setAttribute('fill', h ? '#f59e0b' : '#475569');
+  const t = g.querySelector('text');
+  t.setAttribute('fill', h ? '#1d2024' : '#fff');
+  t.textContent = `${k.toUpperCase()} · ${h ? V[k] : 0} V`;
+ }
+}
+
+// Adıma özel efektler
+async function fx(kind, tk) {
+ if (kind === 'iso') {
+  svgEl(`<rect class="blink" x="368" y="138" width="464" height="364" rx="14" fill="none" stroke="#ff3d7f" stroke-width="3" stroke-dasharray="10 6"/>
+   <text x="600" y="128" text-anchor="middle" style="font:700 15px var(--mono);fill:#c2185b">TEK BAŞINA · hiçbir şey bağlı değil</text>`);
+ }
+ if (kind === 'pins') {
+  svgEl(`<circle class="ring" cx="531" cy="365" r="7" stroke="#ff3d7f"/>
+   <path class="flow" style="stroke:#ff3d7f;filter:none;stroke-width:3" d="M545 404 H678 Q694 404 694 388 V252 Q694 236 678 236 H522 Q506 236 506 252 V388 Q506 404 522 404"/>`);
+  for (let n = 1; n <= 8; n++) {
+   if (!await wait(n === 1 ? 300 : 480) || tk !== token) return;
+   const [x, y] = P[n], by = y < 300 ? 128 : 512;
+   svgEl(`<g class="pop"><circle class="ring" cx="${x}" cy="${y}" r="14" stroke="#ff8a00"/>
+    <circle cx="${x}" cy="${by}" r="17" fill="#ff8a00"/><text x="${x}" y="${by + 6}" text-anchor="middle" style="font:700 17px var(--mono);fill:#fff">${n}</text>
+    <text x="${x}" y="${by + (y < 300 ? -24 : 36)}" text-anchor="middle" class="lab">${NAME[n]}</text></g>`);
+  }
+ }
+ if (kind === 'heat') {
+  if (bad) svgEl(`<rect class="hot" x="520" y="265" width="160" height="110" rx="4"/>
+   ${[570, 600, 630].map((x, i) => `<path class="wave" style="animation-delay:${i * .3}s" d="M${x} 255 q7 -9 0 -18 q-7 -9 0 -18"/>`).join('')}
+   <text x="600" y="330" text-anchor="middle" style="font:700 24px var(--display);fill:#fff">✗ SICAK</text>`);
+  else svgEl(`<text x="600" y="322" text-anchor="middle" style="font:700 24px var(--display);fill:#7ee08f">✓ SOĞUK</text>
+   <text x="600" y="345" text-anchor="middle" style="font:500 11px var(--mono);fill:#c9ccd1">oda sıcaklığı</text>`);
+ }
+ if (kind === 'verdict') {
+  const c = bad ? '#e53935' : '#2e8a4a';
+  svgEl(`<rect class="pop" x="368" y="138" width="464" height="364" rx="14" fill="none" stroke="${c}" stroke-width="5"/>
+   <text class="pop" x="600" y="333" text-anchor="middle" style="font:700 30px var(--display);fill:${bad ? '#ff8a80' : '#7ee08f'}">${bad ? '✗ ARIZALI' : '✓ SAĞLAM'}</text>`);
+ }
+}
+
+async function sweep(s, B, tk) {
+ const sw = s.sweep, fixed = sw.who === 'red' ? 'black' : 'red';
+ const vals = sw.pins.map((p, i) => B.vals && p in B.vals ? B.vals[p] : sw.vals[i]);
+ await Promise.all([moveProbe(fixed, P[s[fixed]]), moveProbe(sw.who, P[sw.pins[0]])]);
+ hit(fixed, s[fixed]);
+ while (tk === token) {
+  for (let i = 0; i < sw.pins.length; i++) {
+   if (!await moveProbe(sw.who, P[sw.pins[i]], 450)) return;
+   lcd(vals[i], s.dig, s.u, B.beepPin === sw.pins[i]);
+   hit(sw.who, sw.pins[i]);
+   if (!await wait(1100)) return;
+   lcd(MODE[s.mode].open, 0, s.u);
+  }
+  if (!await wait(500)) return;
+ }
+}
+
+function dur(s) {
+ if (s.sweep) return 1600 + s.sweep.pins.length * 1550;
+ if (s.wires === 'draw') return 7000;
+ if (s.fx === 'pins') return 6000;
+ return 5200;
+}
+
+async function run() {
+ const tk = ++token, s = STEPS[cur], B = bad && s.bad || {};
+ clearTimeout(playT);
+ if (playing && cur < STEPS.length - 1) playT = setTimeout(() => go(1, true), dur(s));
+ panel(s); strip(); save();
+ $('fx').innerHTML = '';
+ $('ov').style.display = s.fx === 'heat' || s.fx === 'verdict' ? 'none' : '';
+ wires(s.wires); setMode(s.mode || 'off');
+ jump(null); flows([]); levels(null);
+ if (s.fx) fx(s.fx, tk);
+ if (!s.red && !s.black && !s.sweep) { moveProbe('red', PARK.red); moveProbe('black', PARK.black); return; }
+ if (s.jump) {
+  await Promise.all([moveProbe('red', PARK.red, 400), moveProbe('black', PARK.black, 400)]);
+  if (tk !== token) return;
+  jump(s.jump);
+  if (!await wait(750)) return;
+ }
+ if (s.lv) levels({...s.lv, ...B.lv});
+ flows(B.flow || s.flow || []);
+ if (s.sweep) return sweep(s, B, tk);
+ await Promise.all([moveProbe('red', P[s.red]), moveProbe('black', P[s.black])]);
+ if (tk !== token) return;
+ hit('black', s.black); hit('red', s.red);
+ lcd('v' in B ? B.v : s.v, s.dig, s.u);
+}
+
+// ---- Panel ----
+function probeText(s) {
+ const p = n => `pin ${n} (${NAME[n]})`;
+ if (s.sweep) {
+  const fixed = s.sweep.who === 'red' ? 'black' : 'red';
+  return `${fixed === 'red' ? 'Kırmızı' : 'Siyah'}: ${p(s[fixed])}<br>${s.sweep.who === 'red' ? 'Kırmızı' : 'Siyah'}: ${s.sweep.pins.join(' → ')}`;
+ }
+ return s.red ? `Siyah: ${p(s.black)}<br>Kırmızı: ${p(s.red)}` : '—';
+}
+function panel(s) {
+ $('grp').textContent = s.g;
+ $('cnt').textContent = `${cur + 1} / ${STEPS.length}`;
+ $('prog').style.width = ((cur + 1) / STEPS.length * 100) + '%';
+ $('ttl').textContent = s.t;
+ $('do').innerHTML = s.do;
+ $('mm').textContent = MODE[s.mode || 'off'].t;
+ $('pp').innerHTML = probeText(s);
+ $('exp').textContent = s.exp;
+ $('bad').innerHTML = s.bad.note;
+ $('fault').classList.toggle('on', bad);
+ $('panel').classList.toggle('badmode', bad);
+ $('prev').disabled = cur === 0;
+ $('next').disabled = cur === STEPS.length - 1;
+ $('mGood').classList.toggle('on', !bad);
+ $('mBad').classList.toggle('on', bad);
+ $('play').textContent = playing ? '⏸ Durdur' : '▶ Oynat';
+}
+function strip() {
+ const groups = [];
+ STEPS.forEach((s, i) => { if (!groups.length || groups.at(-1).g !== s.g) groups.push({g: s.g, i: []}); groups.at(-1).i.push(i); });
+ $('strip').innerHTML = groups.map(gr => `<div class="grp"><b>${gr.g}</b>${gr.i.map(i =>
+  `<button data-i="${i}" class="${i === cur ? 'cur' : i < cur ? 'done' : ''}" title="${STEPS[i].t}">${i + 1}</button>`).join('')}</div>`).join('');
+ $('strip').querySelectorAll('button').forEach(b => b.onclick = () => { playing = false; cur = +b.dataset.i; run(); });
+}
+function go(d, auto = false) {
+ if (!auto) playing = false;
+ const n = Math.max(0, Math.min(STEPS.length - 1, cur + d));
+ if (n === STEPS.length - 1) playing = false;
+ cur = n; run();
+}
+
+$('prev').onclick = () => go(-1);
+$('next').onclick = () => go(1);
+$('replay').onclick = () => run();
+$('play').onclick = () => {
+ playing = !playing;
+ if (playing && cur === STEPS.length - 1) cur = 0;
+ run();
+};
+$('mGood').onclick = () => { bad = false; run(); };
+$('mBad').onclick = () => { bad = true; run(); };
+document.addEventListener('keydown', e => {
+ if (e.key === 'ArrowRight') go(1);
+ if (e.key === 'ArrowLeft') go(-1);
+ if (e.key === ' ') { e.preventDefault(); $('play').click(); }
+});
+
+drawStatic();
+setProbe('red', ...PARK.red);
+setProbe('black', ...PARK.black);
+run();
+</script>
+</body>
+</html>

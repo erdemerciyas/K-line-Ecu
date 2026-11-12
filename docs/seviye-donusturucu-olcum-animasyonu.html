@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dönüştürücü Ölçüm Animasyonu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+:root{
+ --bg:#f3f4f1; --fg:#1d2024; --muted:#5d636b; --line:#d5d8d2; --panel:#ffffff; --soft:#eceee9;
+ --accent:#b9770e; --ok:#2e8a4a; --warn:#b4472a;
+ --display:"Barlow Condensed","Arial Narrow",sans-serif;
+ --body:"Barlow",system-ui,sans-serif;
+ --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; color-scheme:dark}}
+:root[data-theme="dark"]{
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:400 15px/1.5 var(--body);margin:0}
+.wrap{max-width:1560px;margin:0 auto;padding:18px 16px 50px;display:grid;gap:14px}
+header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:10px}
+.eyebrow{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font:700 clamp(26px,4vw,38px)/1.05 var(--display);margin:2px 0 0}
+code{font-family:var(--mono);font-size:.9em}
+a{color:var(--accent)}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0}
+.seg button.on.ok{background:var(--ok);color:#fff}
+.seg button.on.bad{background:var(--warn);color:#fff}
+
+/* Adım şeridi */
+.strip{display:flex;flex-wrap:wrap;gap:4px 14px}
+.strip .grp{display:flex;gap:3px;align-items:center}
+.strip .grp b{font:600 11px var(--mono);color:var(--muted);margin-right:4px;text-transform:uppercase;letter-spacing:.05em}
+.strip button{width:26px;height:26px;padding:0;border-radius:50%;font:600 11px var(--mono);border:1.5px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+.strip button.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.strip button.done{background:var(--soft)}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}
+.fig{background:#e4e7e1;border:1px solid var(--line);border-radius:10px;overflow:auto}
+.fig svg{display:block;width:100%;min-width:760px;height:auto}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:12px;position:sticky;top:10px;max-height:calc(100vh - 20px);overflow:auto}
+.meta{display:flex;justify-content:space-between;font:500 12px var(--mono);color:var(--muted)}
+.bar{height:5px;background:var(--soft);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);transition:width .25s}
+.ttl{font:700 26px/1.1 var(--display);margin:0}
+.do ol{margin:4px 0 0;padding-left:20px}
+.do p{margin:0}
+.lbl{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:10px;font:500 13px var(--mono)}
+.expect{background:color-mix(in srgb,var(--ok) 12%,transparent);border:1px solid color-mix(in srgb,var(--ok) 45%,transparent);border-radius:8px;padding:8px 12px}
+.expect .lbl{color:var(--ok)}
+.fault{background:color-mix(in srgb,var(--warn) 8%,transparent);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);border-radius:8px;padding:8px 12px;font-size:14px}
+.fault .lbl{color:var(--warn)}
+.fault.on{background:color-mix(in srgb,var(--warn) 18%,transparent);border-color:var(--warn)}
+.panel.badmode .expect{opacity:.55}
+button{font:600 14px var(--body);border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:8px;padding:8px 14px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.4;cursor:default}
+.nav-btns{display:flex;gap:8px;justify-content:space-between}
+table.dt{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px}
+table.dt th,table.dt td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+table.dt th{font:600 11px var(--mono);text-transform:uppercase;color:var(--muted)}
+table.dt td.b{color:var(--warn);font-weight:600}
+table.dt td.g{color:var(--ok);font-weight:600}
+
+/* SVG */
+.silk{font:700 12px var(--mono);fill:#f2f5f8}
+.lab{font:600 13px var(--mono);fill:#2b2e33}
+.trace{fill:none;stroke:#d9b44a;stroke-width:3;stroke-linejoin:round;opacity:.85}
+.w{fill:none;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}
+#wires.off{display:none}
+#src.dim{opacity:.3}
+#wires.anim .conn{animation:fade .35s both;animation-delay:var(--d)}
+#wires.anim .conn path{stroke-dasharray:1;stroke-dashoffset:1;animation:draw .55s ease-out forwards;animation-delay:var(--d)}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes draw{to{stroke-dashoffset:0}}
+.flow{fill:none;stroke:#ffb020;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:10 9;animation:march .7s linear infinite;filter:drop-shadow(0 0 4px #ffb020)}
+@keyframes march{to{stroke-dashoffset:-19}}
+.jump path{fill:none;stroke:#ff8a00;stroke-width:6;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:draw .5s ease-out forwards}
+.jump circle{fill:#ff8a00;animation:fade .3s .4s both}
+.ring{fill:none;stroke-width:3;transform-box:fill-box;transform-origin:center;animation:ring 1.3s ease-out infinite}
+@keyframes ring{0%{transform:scale(.6);opacity:1}100%{transform:scale(2.2);opacity:0}}
+.blink{animation:blink 1s ease-in-out infinite}
+@keyframes blink{50%{opacity:.35}}
+.pop{animation:fade .3s both}
+#needle{transform-origin:1045px 375px;transition:transform .5s cubic-bezier(.3,1.4,.6,1)}
+
+@media (max-width:1100px){
+ .main{grid-template-columns:1fr}
+ .panel{position:static;max-height:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <header>
+  <div>
+   <div class="eyebrow">K-Line OBD · seviye dönüştürücü tek başına test · <a href="l9637d-olcum-animasyonu.html">L9637D testi</a></div>
+   <h1>Seviye Dönüştürücü Ölçüm Animasyonu</h1>
+  </div>
+  <div class="tools">
+   <div class="seg" role="group" aria-label="Modül durumu">
+    <button id="mGood" class="ok">Sağlam modül</button>
+    <button id="mBad" class="bad">Arızalı modül</button>
+   </div>
+   <button id="play" class="primary">▶ Oynat</button>
+   <button id="replay">↻ Tekrar</button>
+  </div>
+ </header>
+
+ <div class="strip" id="strip"></div>
+
+ <div class="main">
+  <div class="fig">
+   <svg viewBox="0 0 1190 670" role="img" aria-label="Seviye dönüştürücü modülü, besleme, multimetre ve problar">
+    <g id="src"></g>
+    <g id="wires" class="off"></g>
+    <g id="board"></g>
+    <g id="flows"></g>
+    <g id="jumps"></g>
+    <g id="fx"></g>
+    <g id="meter"></g>
+    <path id="cb_black" class="w" stroke="#1b1b1b" stroke-width="5"/>
+    <path id="cb_red" class="w" stroke="#d32f2f" stroke-width="5"/>
+    <g id="pr_black"></g>
+    <g id="pr_red"></g>
+   </svg>
+  </div>
+
+  <div class="panel" id="panel">
+   <div>
+    <div class="meta"><span id="grp"></span><span id="cnt"></span></div>
+    <div class="bar"><i id="prog"></i></div>
+   </div>
+   <h2 class="ttl" id="ttl"></h2>
+   <div><div class="lbl">Ne yap</div><div class="do" id="do"></div></div>
+   <div class="kv">
+    <div><div class="lbl">Multimetre</div><div id="mm"></div></div>
+    <div><div class="lbl">Problar</div><div id="pp"></div></div>
+   </div>
+   <div class="expect"><div class="lbl">Sağlam modülde</div><div id="exp"></div></div>
+   <div class="fault" id="fault"><div class="lbl">Arızalı modülde</div><div id="bad"></div></div>
+   <div class="nav-btns">
+    <button id="prev">← Geri</button>
+    <button id="next" class="primary">İleri →</button>
+   </div>
+  </div>
+ </div>
+</div>
+
+<script>
+// Pin merkezleri: breadboard'daki duruş (üst LV tarafı, alt HV tarafı)
+const P = {LV4:[400,200], LV3:[480,200], GL:[560,200], LV:[640,200], LV2:[720,200], LV1:[800,200],
+ HV4:[400,440], HV3:[480,440], GH:[560,440], HV:[640,440], HV2:[720,440], HV1:[800,440]};
+const CH = {1:800, 2:720, 3:480, 4:400};
+const CH_USE = {1:'TX (ESP → L9637D)', 2:'RX (L9637D → ESP)', 3:'plakette TX', 4:'yedek'};
+const NAME = k => k === 'GL' ? 'GND (LV)' : k === 'GH' ? 'GND (HV)' : k;
+const PARK = {red:[1110,640], black:[1010,640]};
+const JACK = {red:[1095,480], black:[995,480]};
+const MODE = {
+ off:{a:-90, t:'Kapalı', open:''},
+ dcv:{a:-30, t:'DC gerilim (V⎓)', open:'0.00'},
+ ohm:{a:30, t:'Direnç (Ω)', open:'OL'},
+ dio:{a:90, t:'Diyot (⊳|)', open:'OL'},
+};
+const chans = f => [1, 2, 3, 4].map(f);
+
+const DECIDE = `<table class="dt"><tr><th>Gördüğün</th><th>Sonuç</th></tr>
+<tr><td>Adım 3–4: bir kanalda OL ya da 0 Ω</td><td class="b">Pull-up direnci kopuk ya da kısa</td></tr>
+<tr><td>Adım 5–6: 0,00 V ve bip</td><td class="b">O kanalın FET'i delinmiş</td></tr>
+<tr><td>Adım 9–10: LV ≈ 5 V</td><td class="b">Modül ters bağlı, ESP'yi bağlama</td></tr>
+<tr><td>Adım 13: LVx → GND iken HVx inmiyor</td><td class="b">Kanal TX yönünü geçirmiyor</td></tr>
+<tr><td>Adım 14: HVx → GND iken LVx inmiyor</td><td class="b">Kanal RX yönünü geçirmiyor</td></tr>
+<tr><td>Hepsi beklenen aralıkta</td><td class="g">Modül sağlam</td></tr></table>
+<p style="margin-top:8px">Breadboard'da kanal 1 TX, kanal 2 RX olarak kullanılıyor. Bunlardan biri arızalıysa kabloları sağlam bir kanala (örneğin kanal 3) taşı. Modül sağlamsa sıradaki şüpheli L9637D: <a href="l9637d-olcum-animasyonu.html">L9637D ölçüm animasyonu</a>.</p>`;
+
+// items: her ölçüm. r/b: kırmızı/siyah prob pini, j: GND'ye çekilen pin, v: beklenen okuma
+const STEPS = [
+ {g:'Hazırlık', t:'Modülü devreden ayır', fx:'iso',
+  do:'<p>Dönüştürücüyü breadboard\'dan çıkar ya da bütün kablolarını sök. ESP, L9637D ve besleme bağlı olmasın. Böylece ölçtüğün her şey yalnızca modüle ait olur.</p>',
+  exp:'Modül tek başına duruyor, hiçbir pine kablo bağlı değil.',
+  bad:{note:'Modül devredeyken ölçersen ESP pini ya da L9637D sonucu değiştirir. Bir kanal bozuk görünse bile sorun kablo olabilir.'}},
+ {g:'Hazırlık', t:'Tarafları ve kanalları tanı', fx:'pins',
+  do:'<p>Üst sıra <b>LV</b> (3,3 V) tarafıdır ve ESP\'ye gider. Alt sıra <b>HV</b> (5 V) tarafıdır ve L9637D\'ye gider. Her kanalda LVx ile HVx karşılıklıdır ve aralarında bir BSS138 FET vardır. Her iki tarafta da 10 kΩ pull-up bulunur. Çizim breadboard\'daki diziliştir. Senin modülünde sıra farklıysa kartın üstündeki yazıya göre git.</p>',
+  exp:'Kanal 1 = TX, kanal 2 = RX (breadboard). LV ve GND üstte, HV ve GND altta.',
+  bad:{note:'Ters takılmış modülde (LV ile HV yer değişmiş) ESP\'nin pinine 5 V gelir. Modül bozuk değildir ama ESP zarar görebilir. Önce yönü doğrula.'}},
+
+ {g:'Enerjisiz', t:'LV tarafı pull-up\'ları', mode:'ohm', u:'kΩ', dig:1,
+  items:chans(n => ({b:'LV', r:'LV' + n, v:10.0})),
+  do:'<p>Multimetreyi <b>Ω</b> moduna al. Siyah prob <b>LV</b> pininde dursun, kırmızıyla sırayla LV1, LV2, LV3 ve LV4\'e değ.</p>',
+  exp:'Her kanalda ≈ 10 kΩ (9 … 11 kΩ). Modülünde 4,7 kΩ varsa o değer de doğrudur, önemli olan dört kanalın aynı çıkması.',
+  bad:{vals:{1:'OL'}, note:'<b>OL</b>: direnç kopuk ya da lehimi atmış, o kanal LV tarafında yukarı çekilmez. <b>0 Ω</b>: LVx, LV\'ye kısa.'}},
+ {g:'Enerjisiz', t:'HV tarafı pull-up\'ları', mode:'ohm', u:'kΩ', dig:1,
+  items:chans(n => ({b:'HV', r:'HV' + n, v:10.0})),
+  do:'<p>Siyah prob <b>HV</b> pinine geçsin. Kırmızıyla sırayla HV1, HV2, HV3 ve HV4\'e değ.</p>',
+  exp:'Her kanalda ≈ 10 kΩ, dört kanal aynı.',
+  bad:{vals:{1:'OL'}, note:'<b>OL</b>: HV tarafındaki direnç kopuk. Bu kanal L9637D\'nin TX ya da RX pinini 5 V\'ta tutamaz.'}},
+ {g:'Enerjisiz', t:'FET gövde diyotu: LV → HV', mode:'dio', u:'V', dig:2,
+  items:chans(n => ({r:'LV' + n, b:'HV' + n, v:[0.58, 0.61, 0.57, 0.60][n - 1]})),
+  do:'<p>Multimetreyi <b>diyot</b> moduna al. Her kanal için kırmızı prob <b>LVx</b>\'e, siyah prob karşısındaki <b>HVx</b>\'e. BSS138\'in gövde diyotu bu yönde iletir.</p>',
+  exp:'Her kanalda ≈ 0,4 … 0,8 V. Ekrandaki değerler örnektir.',
+  bad:{vals:{1:0}, beep:1, note:'<b>0,00 V ve bip</b>: FET delinmiş, LVx ile HVx kısa. Bu kanalda 5 V doğrudan ESP\'ye geçer. Kanalı kullanma.'}},
+ {g:'Enerjisiz', t:'FET ters yön: HV → LV', mode:'dio', u:'V', dig:2,
+  items:chans(n => ({r:'HV' + n, b:'LV' + n, v:'OL'})),
+  do:'<p>Probları yer değiştir: kırmızı <b>HVx</b>, siyah <b>LVx</b>. Diyot bu yönde kapalıdır.</p>',
+  exp:'Her kanalda OL ya da 1 V\'un üstü.',
+  bad:{vals:{1:0}, beep:1, note:'Ters yönde de <b>0,00 V</b>: FET kısa devre, kanal arızalı. Ters yönde de ≈ 0,5 V okuyorsan FET\'in kanalı sızdırıyor demektir, yine arızalıdır.'}},
+ {g:'Enerjisiz', t:'GND\'ler bağlı mı, LV–HV kısa mı?', mode:'ohm', u:'Ω', dig:1,
+  items:[{r:'GL', b:'GH', v:0.2, beep:true}, {r:'LV', b:'HV', v:'OL'}],
+  do:'<p>Ω modunda önce iki GND pinini ölç (üst ve alt), sonra LV ile HV\'yi.</p>',
+  exp:'GND–GND ≈ 0 Ω (bip). LV–HV birkaç on kΩ ya da OL, 0 Ω olmamalı.',
+  bad:{vals:{1:0.3}, beep:1, note:'<b>LV–HV ≈ 0 Ω</b>: iki besleme birbirine kısa, 5 V doğrudan ESP\'nin 3,3 V hattına gider. Modülü kullanma. GND–GND OL çıkıyorsa iki GND\'yi de ayrı ayrı bağlaman gerekir.'}},
+
+ {g:'Besleme', t:'Test düzeneğini kur', wires:'draw',
+  do:`<ol>
+   <li>İki kaynağın <b>−</b> ucu → <b>iki GND pinine</b> (üst ve alt). Ortak GND şart.</li>
+   <li>3,3 V kaynağın + ucu → <b>LV</b>. ESP kartının 3V3 pini, bir AMS1117 ya da seri 2 kalem pil olur.</li>
+   <li>5 V kaynağın + ucu → <b>HV</b>. USB şarj ya da 78L05 olur.</li>
+  </ol><p style="margin-top:6px">LVx ve HVx pinleri boş kalır, onları modülün kendi pull-up\'ları tutar.</p>`,
+  exp:'Bağlantılar şekildeki gibi. Henüz ölçüm yok.',
+  bad:{note:'LV ile HV\'yi karıştırma. 5 V\'u LV\'ye verirsen dönüştürücü çalışmaz ve sonra ESP\'ye 5 V taşır.'}},
+ {g:'Besleme', t:'HV pini', wires:true, mode:'dcv', u:'V', dig:2,
+  items:[{b:'GH', r:'HV', v:5.0}],
+  do:'<p>Multimetreyi <b>DC V</b>\'ye al. Siyah prob alt GND\'de, kırmızı prob HV pininde.</p>',
+  exp:'4,8 … 5,2 V',
+  bad:{vals:{0:2.1}, note:'Kaynak bağlıyken HV birkaç volta düşüyorsa modülün içinde kısa var: delinmiş bir FET ya da kondansatör. 0 V ise sorun kabloda.'}},
+ {g:'Besleme', t:'LV pini', wires:true, mode:'dcv', u:'V', dig:2,
+  items:[{b:'GL', r:'LV', v:3.30}],
+  do:'<p>Siyah prob üst GND\'ye, kırmızı prob LV pinine. FET\'lerin gate\'i buradan beslenir.</p>',
+  exp:'2,8 … 3,5 V',
+  bad:{vals:{0:4.98}, note:'<b>≈ 5 V</b>: modül ters bağlı, ya da LV ile HV bir FET üzerinden kısa. Bu halde ESP\'yi kesinlikle bağlama. 0 V ise sorun kabloda.'}},
+
+ {g:'Fonksiyon', t:'HV tarafı boşta', wires:true, mode:'dcv', u:'V', dig:2,
+  items:chans(n => ({b:'GH', r:'HV' + n, v:5.0})),
+  do:'<p>Siyah prob alt GND\'de. Kırmızıyla HV1 … HV4\'ü sırayla ölç. Pull-up\'lar her kanalı 5 V\'a çekmeli.</p>',
+  exp:'Her kanalda 4,4 … 5,2 V',
+  bad:{vals:{1:3.9}, note:'5 V yerine ≈ 3,9 V: FET delinmiş ve HVx\'i LV tarafına bağlıyor. 0 V: HVx GND\'ye kısa ya da pull-up kopuk.'}},
+ {g:'Fonksiyon', t:'LV tarafı boşta', wires:true, mode:'dcv', u:'V', dig:2,
+  items:chans(n => ({b:'GL', r:'LV' + n, v:3.30})),
+  do:'<p>Siyah prob üst GND\'ye geçsin. Kırmızıyla LV1 … LV4\'ü ölç.</p>',
+  exp:'Her kanalda 2,8 … 3,5 V',
+  bad:{vals:{1:3.9}, note:'<b>3,3 V\'un üstü</b>: HV tarafı bu kanaldan sızıyor, ESP pini 3,3 V\'u aşar. FET arızalı. 0 V ise LVx kısa ya da pull-up kopuk.'}},
+ {g:'Fonksiyon', t:'LVx → GND: HVx iniyor mu? (TX yönü)', wires:true, mode:'dcv', u:'V', dig:2,
+  items:chans(n => ({j:'LV' + n, b:'GH', r:'HV' + n, v:0.08})),
+  do:'<p>Turuncu atlama kablosuyla <b>LVx\'i GND\'ye</b> çek. Tutarken karşısındaki <b>HVx</b>\'i ölç. Dört kanal için tekrarla. Bu, ESP\'nin TX\'i LOW yapmasının aynısıdır: 3,3 V tarafındaki LOW, 5 V tarafına geçmeli.</p>',
+  exp:'Her kanalda 0,5 V\'un altı',
+  bad:{vals:{1:5.0}, note:'HVx 5 V\'ta kalıyor: FET açılmıyor, kanal LV → HV yönünü geçirmiyor. LV beslemesi (adım 10) doğruysa bu kanal arızalı. TX bu kanaldaysa ESP\'nin gönderdiği hiçbir şey L9637D\'ye ulaşmaz.'}},
+ {g:'Fonksiyon', t:'HVx → GND: LVx iniyor mu? (RX yönü)', wires:true, mode:'dcv', u:'V', dig:2,
+  items:chans(n => ({j:'HV' + n, b:'GL', r:'LV' + n, v:0.12})),
+  do:'<p>Bu kez <b>HVx\'i GND\'ye</b> çek ve karşısındaki <b>LVx</b>\'i ölç. Bu, L9637D\'nin RX\'i LOW yapmasının aynısıdır: 5 V tarafındaki LOW, gövde diyotu ve FET üzerinden 3,3 V tarafına geçmeli.</p>',
+  exp:'Her kanalda 0,5 V\'un altı',
+  bad:{vals:{1:3.3}, note:'<b>LVx 3,3 V\'ta kalıyor: kanal HV → LV yönünü geçirmiyor.</b> RX bu kanaldaysa L9637D cevabı alsa da ESP göremez. "K inmiyor" belirtisinin dönüştürücüden kaynaklanan hali budur. RX\'i sağlam bir kanala taşı.'}},
+
+ {g:'Sonuç', t:'Karar', wires:true, fx:'verdict',
+  do:DECIDE,
+  exp:'Bütün adımlar beklenen aralıktaysa modül sağlam.',
+  bad:{note:'Arızalı kanal varsa onu kullanma. Kullandığın kanallardan (1 ve 2) biri bozuksa kabloları kanal 3\'e ya da 4\'e taşı ya da modülü değiştir.'}},
+];
+
+const $ = id => document.getElementById(id);
+const KEY = 'donusturucu-olcum-anim-v1';
+let cur = 0, bad = false, token = 0, playing = false, playT = 0, curJump = null;
+try { const s = JSON.parse(localStorage.getItem(KEY)) || {}; cur = Math.min(STEPS.length - 1, s.cur | 0); bad = !!s.bad; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify({cur, bad})); } catch (e) {} };
+
+// ---- Statik çizim ----
+const dot = (x, y, c) => `<circle cx="${x}" cy="${y}" r="5" fill="${c}"/>`;
+const hop = 'a8 8 0 0 1 0 16';
+
+function drawStatic() {
+ $('src').innerHTML = `
+  <rect x="30" y="40" width="110" height="76" rx="8" fill="#2b2e33"/>
+  <text x="85" y="76" text-anchor="middle" style="font:700 22px var(--display);fill:#fff">3,3 V</text>
+  <text x="85" y="98" text-anchor="middle" style="font:500 11px var(--mono);fill:#c9ccd1">ESP 3V3 / pil</text>
+  ${dot(140, 80, '#ef6c00')}${dot(50, 116, '#9aa0a6')}
+  <rect x="30" y="520" width="110" height="76" rx="8" fill="#2b2e33"/>
+  <text x="85" y="556" text-anchor="middle" style="font:700 22px var(--display);fill:#fff">5 V</text>
+  <text x="85" y="578" text-anchor="middle" style="font:500 11px var(--mono);fill:#c9ccd1">USB / 78L05</text>
+  ${dot(140, 560, '#1976d2')}${dot(85, 596, '#9aa0a6')}`;
+
+ const conn = (inner, i) => `<g class="conn" style="--d:${(i * 0.6).toFixed(2)}s">${inner}</g>`;
+ const g = '#212121';
+ $('wires').innerHTML = [
+  `<path class="w" stroke="${g}" pathLength="1" d="M18 620 H600"/><path class="w" stroke="${g}" pathLength="1" d="M50 116 V128 H18 V620"/><path class="w" stroke="${g}" pathLength="1" d="M85 596 V620"/>
+   <path class="w" stroke="${g}" pathLength="1" d="M560 452 V552 ${hop} V620"/><path class="w" stroke="${g}" pathLength="1" d="M560 188 V130 H330 V552 ${hop} V620"/>
+   ${dot(560, 620, g)}${dot(330, 620, g)}<text x="150" y="645" class="lab" style="fill:${g}">GND</text>`,
+  `<path class="w" stroke="#ef6c00" pathLength="1" d="M140 80 H660"/><path class="w" stroke="#ef6c00" pathLength="1" d="M640 188 V80"/>${dot(640, 80, '#ef6c00')}<text x="150" y="68" class="lab" style="fill:#ef6c00">+3,3 V</text>`,
+  `<path class="w" stroke="#1976d2" pathLength="1" d="M140 560 H660"/><path class="w" stroke="#1976d2" pathLength="1" d="M640 452 V560"/>${dot(640, 560, '#1976d2')}<text x="150" y="550" class="lab" style="fill:#1976d2">+5 V</text>`,
+ ].map(conn).join('');
+
+ let b = `<rect x="350" y="160" width="490" height="320" rx="10" fill="#1f4e8c" stroke="#163a69" stroke-width="2"/>
+  <path class="trace" d="M560 212 V428"/>
+  <path class="trace" d="M640 212 V250"/><text x="648" y="248" style="font:500 10px var(--mono);fill:#cfdcef">→ gate'ler</text>
+  <path class="trace" d="M640 428 V392"/><text x="648" y="400" style="font:500 10px var(--mono);fill:#cfdcef">→ pull-up</text>`;
+ for (const n of [1, 2, 3, 4]) {
+  const x = CH[n];
+  b += `<path class="trace" d="M${x} 212 V300"/><path class="trace" d="M${x} 330 V428"/>
+   <rect x="${x - 13}" y="300" width="26" height="30" rx="2" fill="#1e2124"/>
+   <rect x="${x - 3}" y="296" width="6" height="5" fill="#c3c7cc"/><rect x="${x - 3}" y="329" width="6" height="5" fill="#c3c7cc"/><rect x="${x - 18}" y="312" width="6" height="6" fill="#c3c7cc"/>
+   <text x="${x - 22}" y="319" text-anchor="end" style="font:600 10px var(--mono);fill:#cfdcef">Q${n}</text>
+   <rect x="${x + 9}" y="240" width="18" height="8" fill="#222"/><rect x="${x + 9}" y="240" width="4" height="8" fill="#ddd"/><rect x="${x + 23}" y="240" width="4" height="8" fill="#ddd"/>
+   <rect x="${x + 9}" y="390" width="18" height="8" fill="#222"/><rect x="${x + 9}" y="390" width="4" height="8" fill="#ddd"/><rect x="${x + 23}" y="390" width="4" height="8" fill="#ddd"/>`;
+ }
+ for (const [k, [x, y]] of Object.entries(P)) {
+  b += `<rect x="${x - 9}" y="${y - 9}" width="18" height="18" rx="2" fill="#d9b44a" stroke="#8a6d1c"/><circle cx="${x}" cy="${y}" r="4" fill="#3b2f10"/>
+   <text x="${x - 14}" y="${y + 4}" text-anchor="end" class="silk">${k === 'GL' || k === 'GH' ? 'GND' : k}</text>`;
+ }
+ b += `<text x="595" y="470" text-anchor="middle" style="font:500 11px var(--mono);fill:#cfdcef">4 KANAL SEVİYE DÖNÜŞTÜRÜCÜ · BSS138</text>
+  <text x="365" y="180" style="font:600 10px var(--mono);fill:#cfdcef">LV · 3,3 V</text>
+  <text x="365" y="430" style="font:600 10px var(--mono);fill:#cfdcef">HV · 5 V</text>`;
+ $('board').innerHTML = b;
+
+ const ml = (k, a, label) => {
+  const r = a * Math.PI / 180, x = 1045 + 74 * Math.sin(r), y = 375 - 74 * Math.cos(r) + 5;
+  return `<text id="ml_${k}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" text-anchor="middle" style="font:700 13px var(--mono)">${label}</text>`;
+ };
+ $('meter').innerHTML = `
+  <rect x="920" y="150" width="250" height="390" rx="22" fill="#f0b400" stroke="#b88a00" stroke-width="2"/>
+  <rect x="935" y="165" width="220" height="360" rx="14" fill="#2a2d32"/>
+  <rect x="950" y="182" width="190" height="84" rx="6" fill="#bfcfae" stroke="#8e9c80"/>
+  <text id="lcdM" x="958" y="199" style="font:600 10px var(--mono);fill:#3d4a35"></text>
+  <text id="beep" x="958" y="258" style="font:700 11px var(--mono);fill:#b4472a;display:none">♪ BİP</text>
+  <text id="lcdV" x="1093" y="246" text-anchor="end" style="font:700 40px var(--mono);fill:#1d2420"></text>
+  <text id="lcdU" x="1097" y="246" style="font:600 16px var(--mono);fill:#1d2420"></text>
+  <text x="1045" y="288" text-anchor="middle" style="font:600 10px var(--mono);fill:#8a9099;letter-spacing:.2em">MULTİMETRE</text>
+  ${ml('off', -90, 'OFF')}${ml('dcv', -30, 'V⎓')}${ml('ohm', 30, 'Ω')}${ml('dio', 90, '⊳|')}
+  <circle cx="1045" cy="375" r="50" fill="#15171a" stroke="#555" stroke-width="3"/>
+  <circle cx="1045" cy="375" r="32" fill="#3a3e44"/>
+  <line id="needle" x1="1045" y1="375" x2="1045" y2="333" stroke="#f0b400" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="995" cy="480" r="13" fill="#111" stroke="#666" stroke-width="3"/><circle cx="995" cy="480" r="5" fill="#444"/>
+  <circle cx="1095" cy="480" r="13" fill="#111" stroke="#d32f2f" stroke-width="3"/><circle cx="1095" cy="480" r="5" fill="#444"/>
+  <text x="995" y="458" text-anchor="middle" style="font:600 10px var(--mono);fill:#bbb">COM</text>
+  <text x="1095" y="458" text-anchor="middle" style="font:600 10px var(--mono);fill:#bbb">VΩ</text>`;
+
+ // Prob: uç (0,0) noktasında, sap sağ üste doğru
+ const probe = (c, d) => `<line x1="0" y1="0" x2="13" y2="-13" stroke="#cfd3d8" stroke-width="3.5" stroke-linecap="round"/>
+  <g transform="rotate(-45)"><rect x="17" y="-6.5" width="60" height="13" rx="5" fill="${c}" stroke="${d}"/><rect x="17" y="-10" width="5" height="20" rx="2" fill="${c}" stroke="${d}"/></g>`;
+ $('pr_red').innerHTML = probe('#d32f2f', '#7a1414');
+ $('pr_black').innerHTML = probe('#262626', '#000');
+}
+
+// ---- Animasyon yardımcıları ----
+const pos = {red: [...PARK.red], black: [...PARK.black]};
+function setProbe(c, x, y) {
+ pos[c] = [x, y];
+ $('pr_' + c).setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)})`);
+ const [jx, jy] = JACK[c], sx = x + 54, sy = y - 54;
+ $('cb_' + c).setAttribute('d', `M${sx.toFixed(1)} ${sy.toFixed(1)} C${(sx + 70).toFixed(1)} ${(sy - 10).toFixed(1)} ${jx} ${jy + 170} ${jx} ${jy}`);
+}
+function moveProbe(c, to, ms = 600) {
+ const tk = token, from = [...pos[c]];
+ return new Promise(done => {
+  const t0 = performance.now();
+  const f = now => {
+   if (tk !== token) return done(false);
+   const k = Math.min(1, (now - t0) / ms), e = k < .5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+   setProbe(c, from[0] + (to[0] - from[0]) * e, from[1] + (to[1] - from[1]) * e);
+   k < 1 ? requestAnimationFrame(f) : done(true);
+  };
+  requestAnimationFrame(f);
+ });
+}
+const wait = ms => { const tk = token; return new Promise(r => setTimeout(() => r(tk === token), ms)); };
+const svgEl = (html, layer = 'fx') => { const g = document.createElementNS('http://www.w3.org/2000/svg', 'g'); g.innerHTML = html; $(layer).appendChild(g); return g; };
+
+function setMode(m, u) {
+ $('needle').style.transform = `rotate(${MODE[m].a}deg)`;
+ for (const k in MODE) $('ml_' + k).style.fill = k === m ? '#f0b400' : '#9aa0a8';
+ $('lcdM').textContent = m === 'off' ? '' : MODE[m].t.toUpperCase();
+ lcd(MODE[m].open, 0, m === 'off' ? '' : u);
+}
+function lcd(v, dig, u, beep = false) {
+ $('lcdU').textContent = u || '';
+ $('beep').style.display = beep ? '' : 'none';
+ if (typeof v !== 'number') { $('lcdV').textContent = v; return; }
+ const tk = token, t0 = performance.now();
+ const f = now => {
+  if (tk !== token) return;
+  const k = Math.min(1, (now - t0) / 450);
+  $('lcdV').textContent = (v * (1 - (1 - k) ** 3)).toFixed(dig);
+  if (k < 1) requestAnimationFrame(f);
+ };
+ requestAnimationFrame(f);
+}
+function hit(c, pin) {
+ document.querySelectorAll('.hit-' + c).forEach(e => e.remove());
+ const [x, y] = P[pin];
+ svgEl(`<circle class="ring hit-${c}" cx="${x}" cy="${y}" r="14" stroke="${c === 'red' ? '#d32f2f' : '#262626'}"/>`);
+}
+function wires(w) {
+ const el = $('wires');
+ el.classList.toggle('off', !w);
+ $('src').classList.toggle('dim', !w);
+ el.classList.remove('anim');
+ if (w === 'draw') { el.getBoundingClientRect(); el.classList.add('anim'); }
+}
+// Atlama kablosu: pinden aynı taraftaki GND pinine yay
+function jump(pin) {
+ curJump = pin || null;
+ $('jumps').innerHTML = '';
+ if (!pin) return;
+ const [x, y] = P[pin], top = y < 300, [gx] = top ? P.GL : P.GH, dy = top ? -64 : 64, k = (gx - x) * .15;
+ svgEl(`<g class="jump"><path pathLength="1" d="M${x} ${y} C${x + k} ${y + dy} ${gx - k} ${y + dy} ${gx} ${y}"/><circle cx="${x}" cy="${y}" r="6"/><circle cx="${gx}" cy="${y}" r="6"/>
+  <text x="${(x + gx) / 2}" y="${y + dy * .75 + (top ? -8 : 18)}" text-anchor="middle" style="font:700 14px var(--mono);fill:#e07000;paint-order:stroke;stroke:#e4e7e1;stroke-width:5px">${pin} → GND</text></g>`, 'jumps');
+}
+// Kanal sütununda sinyal akışı: LOW, GND'ye çekilen taraftan karşıya geçer
+function flow(pin) {
+ $('flows').innerHTML = '';
+ if (!pin) return;
+ const x = CH[pin.slice(2)], down = pin.startsWith('LV');
+ svgEl(`<path class="flow" d="M${x} ${down ? 212 : 428} V${down ? 428 : 212}"/>`, 'flows');
+}
+
+async function fx(kind, tk) {
+ if (kind === 'iso') {
+  svgEl(`<rect class="blink" x="338" y="148" width="514" height="344" rx="14" fill="none" stroke="#ff3d7f" stroke-width="3" stroke-dasharray="10 6"/>
+   <text x="595" y="138" text-anchor="middle" style="font:700 15px var(--mono);fill:#c2185b">TEK BAŞINA · hiçbir şey bağlı değil</text>`);
+ }
+ if (kind === 'pins') {
+  svgEl(`<g class="pop"><rect x="352" y="182" width="486" height="36" rx="8" fill="#ef6c00" fill-opacity=".18" stroke="#ef6c00" stroke-width="2"/>
+   <text x="595" y="140" text-anchor="middle" style="font:700 15px var(--mono);fill:#c25400">LV · 3,3 V tarafı → ESP</text>
+   <rect x="352" y="422" width="486" height="36" rx="8" fill="#1976d2" fill-opacity=".18" stroke="#1976d2" stroke-width="2"/>
+   <text x="595" y="512" text-anchor="middle" style="font:700 15px var(--mono);fill:#1565c0">HV · 5 V tarafı → L9637D</text></g>`);
+  for (const n of [1, 2, 3, 4]) {
+   if (!await wait(n === 1 ? 900 : 650) || tk !== token) return;
+   const x = CH[n];
+   svgEl(`<g class="pop"><rect x="${x - 26}" y="176" width="52" height="288" rx="10" fill="none" stroke="#ff8a00" stroke-width="3" stroke-dasharray="8 5"/>
+    <circle cx="${x}" cy="315" r="20" fill="#ff8a00"/><text x="${x}" y="321" text-anchor="middle" style="font:700 15px var(--mono);fill:#fff">K${n}</text>
+    <text x="${x}" y="548" text-anchor="middle" class="lab">${n <= 2 ? CH_USE[n].split(' ')[0] : ''}</text></g>`);
+  }
+ }
+ if (kind === 'verdict') {
+  const c = bad ? '#e53935' : '#2e8a4a';
+  svgEl(`<rect class="pop" x="338" y="148" width="514" height="344" rx="14" fill="none" stroke="${c}" stroke-width="5"/>
+   <rect class="pop" x="500" y="290" width="190" height="56" rx="10" fill="#1d2024" fill-opacity=".85"/>
+   <text class="pop" x="595" y="329" text-anchor="middle" style="font:700 30px var(--display);fill:${bad ? '#ff8a80' : '#7ee08f'}">${bad ? '✗ KANAL 2 ARIZALI' : '✓ SAĞLAM'}</text>`);
+ }
+}
+
+async function measure(s, B, tk) {
+ const items = s.items.map((it, i) => {
+  const o = B.vals && i in B.vals;
+  return {...it, v: o ? B.vals[i] : it.v, beep: o ? B.beep === i : !!it.beep};
+ });
+ while (tk === token) {
+  for (const it of items) {
+   if ((it.j || null) !== curJump) {
+    flow(null); jump(it.j);
+    if (it.j && !await wait(600)) return;
+   }
+   if (!(await Promise.all([moveProbe('red', P[it.r]), moveProbe('black', P[it.b])])).every(Boolean)) return;
+   hit('black', it.b); hit('red', it.r);
+   flow(it.j && typeof it.v === 'number' && it.v < 1 ? it.j : null);
+   lcd(it.v, s.dig, s.u, it.beep);
+   if (items.length === 1) return;
+   if (!await wait(1300)) return;
+   lcd(MODE[s.mode].open, 0, s.u);
+  }
+  if (!await wait(400)) return;
+ }
+}
+
+function dur(s) {
+ if (s.items && s.items.length > 1) return 1200 + s.items.length * (s.items[0].j ? 2600 : 1950);
+ if (s.wires === 'draw') return 5500;
+ if (s.fx === 'pins') return 6000;
+ return 5000;
+}
+
+async function run() {
+ const tk = ++token, s = STEPS[cur], B = bad && s.bad || {};
+ clearTimeout(playT);
+ if (playing && cur < STEPS.length - 1) playT = setTimeout(() => go(1, true), dur(s));
+ panel(s); strip(); save();
+ $('fx').innerHTML = '';
+ wires(s.wires); setMode(s.mode || 'off', s.u);
+ jump(null); flow(null);
+ if (s.fx) fx(s.fx, tk);
+ if (!s.items) { moveProbe('red', PARK.red); moveProbe('black', PARK.black); return; }
+ measure(s, B, tk);
+}
+
+// ---- Panel ----
+function probeText(s) {
+ if (!s.items) return '—';
+ const uniq = k => [...new Set(s.items.map(it => it[k]).filter(Boolean))].map(NAME).join(' → ');
+ let t = `Siyah: ${uniq('b')}<br>Kırmızı: ${uniq('r')}`;
+ if (s.items[0].j) t += `<br>GND'ye: ${uniq('j')}`;
+ return t;
+}
+function panel(s) {
+ $('grp').textContent = s.g;
+ $('cnt').textContent = `${cur + 1} / ${STEPS.length}`;
+ $('prog').style.width = ((cur + 1) / STEPS.length * 100) + '%';
+ $('ttl').textContent = s.t;
+ $('do').innerHTML = s.do;
+ $('mm').textContent = MODE[s.mode || 'off'].t;
+ $('pp').innerHTML = probeText(s);
+ $('exp').textContent = s.exp;
+ $('bad').innerHTML = s.bad.note;
+ $('fault').classList.toggle('on', bad);
+ $('panel').classList.toggle('badmode', bad);
+ $('prev').disabled = cur === 0;
+ $('next').disabled = cur === STEPS.length - 1;
+ $('mGood').classList.toggle('on', !bad);
+ $('mBad').classList.toggle('on', bad);
+ $('play').textContent = playing ? '⏸ Durdur' : '▶ Oynat';
+}
+function strip() {
+ const groups = [];
+ STEPS.forEach((s, i) => { if (!groups.length || groups.at(-1).g !== s.g) groups.push({g: s.g, i: []}); groups.at(-1).i.push(i); });
+ $('strip').innerHTML = groups.map(gr => `<div class="grp"><b>${gr.g}</b>${gr.i.map(i =>
+  `<button data-i="${i}" class="${i === cur ? 'cur' : i < cur ? 'done' : ''}" title="${STEPS[i].t}">${i + 1}</button>`).join('')}</div>`).join('');
+ $('strip').querySelectorAll('button').forEach(b => b.onclick = () => { playing = false; cur = +b.dataset.i; run(); });
+}
+function go(d, auto = false) {
+ if (!auto) playing = false;
+ const n = Math.max(0, Math.min(STEPS.length - 1, cur + d));
+ if (n === STEPS.length - 1) playing = false;
+ cur = n; run();
+}
+
+$('prev').onclick = () => go(-1);
+$('next').onclick = () => go(1);
+$('replay').onclick = () => run();
+$('play').onclick = () => {
+ playing = !playing;
+ if (playing && cur === STEPS.length - 1) cur = 0;
+ run();
+};
+$('mGood').onclick = () => { bad = false; run(); };
+$('mBad').onclick = () => { bad = true; run(); };
+document.addEventListener('keydown', e => {
+ if (e.key === 'ArrowRight') go(1);
+ if (e.key === 'ArrowLeft') go(-1);
+ if (e.key === ' ') { e.preventDefault(); $('play').click(); }
+});
+
+drawStatic();
+setProbe('red', ...PARK.red);
+setProbe('black', ...PARK.black);
+run();
+</script>
+</body>
+</html>

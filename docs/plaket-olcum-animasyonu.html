@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plaket Ölçüm Animasyonu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+:root{
+ --bg:#f3f4f1; --fg:#1d2024; --muted:#5d636b; --line:#d5d8d2; --panel:#ffffff; --soft:#eceee9;
+ --accent:#b9770e; --ok:#2e8a4a; --warn:#b4472a;
+ --display:"Barlow Condensed","Arial Narrow",sans-serif;
+ --body:"Barlow",system-ui,sans-serif;
+ --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; color-scheme:dark}}
+:root[data-theme="dark"]{
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:400 15px/1.5 var(--body);margin:0}
+.wrap{max-width:1560px;margin:0 auto;padding:18px 16px 50px;display:grid;gap:14px}
+header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:10px}
+.eyebrow{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font:700 clamp(26px,4vw,38px)/1.05 var(--display);margin:2px 0 0}
+code{font-family:var(--mono);font-size:.9em}
+
+/* Adım şeridi */
+.strip{display:flex;flex-wrap:wrap;gap:4px 14px}
+.strip .grp{display:flex;gap:3px;align-items:center}
+.strip .grp b{font:600 11px var(--mono);color:var(--muted);margin-right:4px;text-transform:uppercase;letter-spacing:.05em}
+.strip button{width:26px;height:26px;padding:0;border-radius:50%;font:600 11px var(--mono);border:1.5px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+.strip button.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.strip button.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.strip button.bad{background:var(--warn);border-color:var(--warn);color:#fff}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}
+.fig{background:#e4e7e1;border:1px solid var(--line);border-radius:10px;overflow:auto}
+.fig svg{display:block;width:100%;min-width:860px;height:auto}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:12px;position:sticky;top:10px;max-height:calc(100vh - 20px);overflow:auto}
+.meta{display:flex;justify-content:space-between;font:500 12px var(--mono);color:var(--muted)}
+.ttl{font:700 26px/1.1 var(--display);margin:0}
+.do{margin:0}
+.lbl{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.expect{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;background:var(--soft);border-radius:8px;padding:8px 12px}
+.expect .v{font:700 20px var(--mono)}
+.expect .mode{font:600 12px var(--mono);color:var(--accent)}
+.answer{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.answer input{width:120px;font:700 22px var(--mono);padding:6px 10px;border:2px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+.answer input:focus{outline:none;border-color:var(--accent)}
+.answer .u{font:600 18px var(--mono);color:var(--muted)}
+button{font:600 14px var(--body);border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:8px;padding:8px 14px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.res{display:none;border-radius:8px;padding:8px 12px;font:700 16px var(--display);letter-spacing:.03em}
+.res.ok{display:block;background:color-mix(in srgb,var(--ok) 15%,transparent);border:1px solid var(--ok);color:var(--ok)}
+.res.bad{display:block;background:color-mix(in srgb,var(--warn) 15%,transparent);border:1px solid var(--warn);color:var(--warn)}
+.checks{display:grid;gap:6px}
+.checks.alert .lbl{color:var(--warn)}
+.chk{display:flex;gap:8px;align-items:flex-start;text-align:left;font:400 14px/1.4 var(--body);padding:8px 10px;border-radius:8px;background:var(--soft);border:1px solid transparent;width:100%}
+.chk:hover,.chk.sel{border-color:var(--accent)}
+.chk i{font-style:normal;font:700 12px var(--mono);color:var(--accent);flex:none;margin-top:1px}
+.nav{display:flex;gap:8px;justify-content:space-between}
+.tools{display:flex;gap:8px;flex-wrap:wrap}
+.final{display:none}
+.final.show{display:block}
+.vrow{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--line);font-size:14px}
+.tag{font:600 12px var(--mono);padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.tag.ok{color:var(--ok);border-color:var(--ok)}
+.tag.bad{color:var(--warn);border-color:var(--warn)}
+
+/* Plaket çizim sınıfları (montaj rehberinden) */
+.pbl{font:600 13px var(--display);fill:#fff;paint-order:stroke;stroke:#3a2410;stroke-width:3px;stroke-linejoin:round}
+.pbp{font:600 9.5px var(--mono);fill:#fff;paint-order:stroke;stroke:#1b1d20;stroke-width:3px;stroke-linejoin:round}
+.pgh{fill:none;stroke:#fff;stroke-opacity:.7;stroke-width:1.5;stroke-dasharray:5 4}
+.pdash{fill:none;stroke-width:3;stroke-dasharray:5 4;stroke-linecap:round;stroke-linejoin:round;opacity:.9}
+.redd{stroke:#ff6b6b}.yeld{stroke:#ffd84d}.orgd{stroke:#ff9a3c}.blkd{stroke:#1b1d20}.blud{stroke:#3d7cff}.grnd{stroke:#29c45a}.purd{stroke:#b48cf0}
+.bbn{paint-order:stroke;stroke:#f6f5f0;stroke-width:4px;stroke-linejoin:round}
+.bbr{font:700 15px var(--mono)}
+.bbs{font:500 9.5px var(--mono);fill:#23262b}
+.blk.c{stroke:#2b2d30}.blk.o{stroke:#000}
+.blu.c{stroke:#2f6fd6}.blu.o{stroke:#132f63}
+.grn.c{stroke:#2e9e4f}.grn.o{stroke:#124a22}
+.org.c{stroke:#f07f1a}.org.o{stroke:#7f3f00}
+.pur.c{stroke:#8e5bd1}.pur.o{stroke:#3d2366}
+.red.c{stroke:#d62828}.red.o{stroke:#6e0f0f}
+.yel.c{stroke:#f2c230}.yel.o{stroke:#7d5f00}
+svg .c{fill:none;stroke-width:5.5;stroke-linecap:round;stroke-linejoin:round}
+svg .o{fill:none;stroke-width:8;stroke-linecap:round;stroke-linejoin:round}
+svg .h{fill:none;stroke:#fff;stroke-opacity:.38;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+.lead{stroke:#a9aeb5;stroke-width:3;stroke-linecap:round}
+.pbb{font:600 12.5px var(--display);fill:#23262b;paint-order:stroke;stroke:#f6f5f0;stroke-width:4px;stroke-linejoin:round}
+.pbs{font:500 10.5px var(--body);fill:#fff;paint-order:stroke;stroke:#3a2410;stroke-width:3px;stroke-linejoin:round}
+.pg{font:500 9.5px var(--mono);fill:#5d636b}
+.pin{font:500 11.5px var(--mono);fill:#23262b}
+.silk{font:500 10px var(--mono);fill:#f2f5f8}
+
+/* Animasyon katmanı */
+.flow{fill:none;stroke:#ffb020;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:10 9;animation:march .7s linear infinite;filter:drop-shadow(0 0 4px #ffb020)}
+@keyframes march{to{stroke-dashoffset:-19}}
+.hlw{fill:none;stroke:#ff3d7f;stroke-width:14;stroke-opacity:.55;stroke-linecap:round;stroke-linejoin:round;animation:blink 1s ease-in-out infinite}
+.hlb{fill:#ff3d7f;fill-opacity:.12;stroke:#ff3d7f;stroke-width:3;stroke-dasharray:8 5;animation:blink 1s ease-in-out infinite}
+@keyframes blink{50%{opacity:.35}}
+.ring{fill:none;stroke-width:3;transform-box:fill-box;transform-origin:center;animation:ring 1.3s ease-out infinite}
+@keyframes ring{0%{transform:scale(.6);opacity:1}100%{transform:scale(2.2);opacity:0}}
+.jump{fill:none;stroke:#ff8a00;stroke-width:6;stroke-linecap:round;stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .7s ease-out .2s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.callout{font:700 13px var(--mono);paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
+.xmark{stroke:#d62828;stroke-width:5;stroke-linecap:round}
+
+@media (max-width:1100px){
+ .main{grid-template-columns:1fr}
+ .panel{position:static;max-height:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <header>
+  <div>
+   <div class="eyebrow">K-Line OBD · 40 × 60 delikli plaket ölçüm rehberi</div>
+   <h1>Adım Adım Ölçüm Animasyonu</h1>
+  </div>
+  <div class="tools">
+   <button id="vBot">Alt yüz · lehim</button>
+   <button id="vTop">Üst yüz · parça</button>
+   <button id="replay">↻ Animasyonu tekrar oynat</button>
+   <button id="copy">Sonuçları kopyala</button>
+   <button id="reset">Sıfırla</button>
+  </div>
+ </header>
+
+ <div class="strip" id="strip"></div>
+
+ <div class="main">
+  <div class="fig">
+   <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="gBlk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b3d40"/><stop offset="1" stop-color="#0f1011"/></linearGradient><radialGradient id="gCap" cx=".35" cy=".35" r=".7"><stop offset="0" stop-color="#f7c86a"/><stop offset="1" stop-color="#c9781f"/></radialGradient><linearGradient id="gCyl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0d0d0e"/><stop offset=".45" stop-color="#4a4c50"/><stop offset="1" stop-color="#0d0d0e"/></linearGradient><linearGradient id="gGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6da86"/><stop offset="1" stop-color="#b08226"/></linearGradient><linearGradient id="gPcb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a6cb5"/><stop offset="1" stop-color="#1a4a85"/></linearGradient><linearGradient id="gPcbG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22764a"/><stop offset="1" stop-color="#155232"/></linearGradient><linearGradient id="gRes" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#b39457"/><stop offset=".45" stop-color="#efdcb0"/><stop offset="1" stop-color="#b39457"/></linearGradient><radialGradient id="gScr" cx=".5" cy=".4" r=".7"><stop offset="0" stop-color="#1a2230"/><stop offset="1" stop-color="#05070a"/></radialGradient><pattern id="pbPadG" x="140" y="56" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="12" cy="12" r="7" fill="#d8c58a" stroke="#8f7a3c" stroke-width="1"/><circle cx="12" cy="12" r="2.6" fill="#0d2a18"/></pattern></defs></svg>
+  <svg id="pbTop" viewBox="-310 0 1430 540" role="img" aria-label="Üst yüz, parça tarafı"><rect x="78" y="28" width="604" height="392" rx="8" fill="#22794a" stroke="#0c3b22" stroke-width="2"/><rect x="140" y="56" width="480" height="336" fill="url(#pbPadG)"/><rect x="88" y="72.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="72.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="98.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="98.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="125.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="125.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="151.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="151.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="178.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="178.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="204.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="204.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="231.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="231.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="257.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="257.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="284.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="284.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="310.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="310.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="337.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="337.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="363.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="363.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><circle cx="96" cy="44" r="6" fill="#e4e7e1" stroke="#0c3b22" stroke-width="1.5"/><circle cx="96" cy="404" r="6" fill="#e4e7e1" stroke="#0c3b22" stroke-width="1.5"/><circle cx="664" cy="44" r="6" fill="#e4e7e1" stroke="#0c3b22" stroke-width="1.5"/><circle cx="664" cy="404" r="6" fill="#e4e7e1" stroke="#0c3b22" stroke-width="1.5"/><text x="152" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">1</text><text x="176" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">2</text><text x="200" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">3</text><text x="224" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">4</text><text x="248" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">5</text><text x="272" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">6</text><text x="296" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">7</text><text x="320" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">8</text><text x="344" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">9</text><text x="368" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">10</text><text x="392" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">11</text><text x="416" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">12</text><text x="440" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">13</text><text x="464" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">14</text><text x="488" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">15</text><text x="512" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">16</text><text x="536" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">17</text><text x="560" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">18</text><text x="584" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">19</text><text x="608" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">20</text><text x="128" y="71.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">A</text><text x="632" y="71.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">A</text><text x="128" y="95.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">B</text><text x="632" y="95.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">B</text><text x="128" y="119.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">C</text><text x="632" y="119.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">C</text><text x="128" y="143.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">D</text><text x="632" y="143.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">D</text><text x="128" y="167.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">E</text><text x="632" y="167.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">E</text><text x="128" y="191.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">F</text><text x="632" y="191.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">F</text><text x="128" y="215.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">G</text><text x="632" y="215.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">G</text><text x="128" y="239.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">H</text><text x="632" y="239.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">H</text><text x="128" y="263.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">I</text><text x="632" y="263.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">I</text><text x="128" y="287.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">J</text><text x="632" y="287.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">J</text><text x="128" y="311.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">K</text><text x="632" y="311.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">K</text><text x="128" y="335.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">L</text><text x="632" y="335.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">L</text><text x="128" y="359.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">M</text><text x="632" y="359.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">M</text><text x="128" y="383.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">N</text><text x="632" y="383.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">N</text><polyline points="608,92 584,92" class="pdash redd"/><polyline points="488,92 488,116" class="pdash redd"/><polyline points="416,116 560,116" class="pdash redd"/><polyline points="464,116 464,188 440,188" class="pdash redd"/><polyline points="440,212 608,212" class="pdash yeld"/><polyline points="368,116 320,116" class="pdash orgd"/><polyline points="296,212 368,212" class="pdash orgd"/><polyline points="248,68 248,380" class="pdash blkd"/><polyline points="248,68 464,68" class="pdash blkd"/><polyline points="392,116 392,68" class="pdash blkd"/><polyline points="200,236 296,236" class="pdash blkd"/><polyline points="440,236 464,236 464,380" class="pdash blkd"/><polyline points="248,380 608,380" class="pdash blkd"/><polyline points="608,356 608,380" class="pdash blkd"/><polyline points="296,188 320,188 320,164 368,164" class="pdash grnd"/><polyline points="296,260 368,260 368,236" class="pdash blud"/><path d="M608 92H720" class="red o"/><path d="M608 92H720" class="red c"/><text x="728" y="96" text-anchor="start" class="pin">OBD 16 · +12V</text><path d="M608 212H720" class="yel o"/><path d="M608 212H720" class="yel c"/><text x="728" y="216" text-anchor="start" class="pin">OBD 7 · K</text><path d="M608 356H720" class="blk o"/><path d="M608 356H720" class="blk c"/><text x="728" y="360" text-anchor="start" class="pin">OBD 4 · GND</text><path d="M608 380H720" class="blk o"/><path d="M608 380H720" class="blk c"/><text x="728" y="384" text-anchor="start" class="pin">OBD 5 · GND</text><!-- Waveshare ESP32-S3-Touch-LCD-2.1 plaketin dışında: 4 pinli UART başlığından J2'ye 4 telli kablo --><polyline points="152,188 200,188" class="pdash grnd"/><polyline points="152,212 200,212" class="pdash purd"/><polyline points="152,236 200,236" class="pdash blkd"/><polyline points="152,260 200,260" class="pdash blud"/><g><rect x="-130" y="166" width="74" height="116" rx="8" fill="#202326" stroke="#000" stroke-width="1.5"/><circle cx="-200" cy="224" r="100" fill="#202326" stroke="#000" stroke-width="1.5"/><circle cx="-200" cy="224" r="76" fill="url(#gScr)" stroke="#55585e"/><path d="M-240 264A57 57 0 1 1 -160 264" fill="none" stroke="#3a3f47" stroke-width="7" stroke-linecap="round"/><path d="M-240 264A57 57 0 0 1 -200 167" fill="none" stroke="#e7a33a" stroke-width="7" stroke-linecap="round"/><text x="-200" y="231" text-anchor="middle" style="font:700 20px var(--mono);fill:#f2f5f8">1450</text><text x="-200" y="248" text-anchor="middle" class="silk" style="font-size:8px;fill:#9aa1ab">RPM</text><rect x="-81" y="176" width="22" height="96" rx="2" fill="#111" stroke="#000"/><g fill="url(#gGold)" stroke="#7a5a12"><rect x="-75" y="183" width="10" height="10" rx="2"/><rect x="-75" y="207" width="10" height="10" rx="2"/><rect x="-75" y="231" width="10" height="10" rx="2"/><rect x="-75" y="255" width="10" height="10" rx="2"/></g><g class="silk" style="font-size:8px" text-anchor="end"><text x="-86" y="191">GND</text><text x="-86" y="215">3V3</text><text x="-86" y="239" style="fill:#ffd84d;font-weight:700">TXD</text><text x="-86" y="263" style="fill:#ffd84d;font-weight:700">RXD</text></g><text x="-200" y="352" text-anchor="middle" class="pbs" style="fill:#23262b;stroke:none">Waveshare ESP32-S3-Touch-LCD-2.1</text><text x="-200" y="368" text-anchor="middle" class="pbs" style="fill:#5d636b;stroke:none">UART başlığı · torpidoda, kablo kısa</text></g><path d="M-70 236C20 236 60 188 152 188" class="grn o"/><path d="M-70 236C20 236 60 188 152 188" class="grn c"/><path d="M-70 236C20 236 60 188 152 188" class="h"/><path d="M-70 212H152" class="pur o"/><path d="M-70 212H152" class="pur c"/><path d="M-70 212H152" class="h"/><path d="M-70 188C20 188 60 236 152 236" class="blk o"/><path d="M-70 188C20 188 60 236 152 236" class="blk c"/><path d="M-70 188C20 188 60 236 152 236" class="h"/><path d="M-70 260H152" class="blu o"/><path d="M-70 260H152" class="blu c"/><path d="M-70 260H152" class="h"/><rect x="141" y="177" width="22" height="94" rx="2" fill="#111" stroke="#000"/><g fill="url(#gGold)" stroke="#7a5a12"><rect x="147" y="183" width="10" height="10" rx="2"/><rect x="147" y="207" width="10" height="10" rx="2"/><rect x="147" y="231" width="10" height="10" rx="2"/><rect x="147" y="255" width="10" height="10" rx="2"/></g><text x="152" y="171" text-anchor="middle" class="pbl">J2</text><g class="pbp" text-anchor="end"><text x="130" y="182">RX</text><text x="130" y="206">3V3</text><text x="130" y="230">GND</text><text x="130" y="254">TX</text></g><text x="0" y="150" text-anchor="middle" class="pin">J2 · GND 3V3 TX RX</text><text x="0" y="300" text-anchor="middle" class="pin" style="fill:#b4472a">TXD → RX · RXD → TX</text><rect x="184" y="148" width="128" height="152" rx="4" fill="url(#gPcb)" stroke="#0f2f57"/><circle cx="296" cy="164" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="200" cy="164" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="286" y="167.5" text-anchor="end" class="silk">HV1</text><text x="210" y="167.5" class="silk">LV1</text><circle cx="296" cy="188" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="200" cy="188" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="286" y="191.5" text-anchor="end" class="silk">HV2</text><text x="210" y="191.5" class="silk">LV2</text><circle cx="296" cy="212" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="200" cy="212" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="286" y="215.5" text-anchor="end" class="silk">HV</text><text x="210" y="215.5" class="silk">LV</text><circle cx="296" cy="236" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="200" cy="236" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="286" y="239.5" text-anchor="end" class="silk">GND</text><text x="210" y="239.5" class="silk">GND</text><circle cx="296" cy="260" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="200" cy="260" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="286" y="263.5" text-anchor="end" class="silk">HV3</text><text x="210" y="263.5" class="silk">LV3</text><circle cx="296" cy="284" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="200" cy="284" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="286" y="287.5" text-anchor="end" class="silk">HV4</text><text x="210" y="287.5" class="silk">LV4</text><text x="248" y="318" text-anchor="middle" class="pbl">seviye dönüştürücü</text><text x="248" y="332" text-anchor="middle" class="pbs">90° döndürülmüş · HV çipe bakar</text><g transform="translate(-24 -24)"><rect x="376" y="170" width="104" height="108" rx="4" fill="#26282c" stroke="#000"/><path d="M421 170a7 7 0 0 0 14 0" fill="#22794a"/><rect x="382" y="176" width="92" height="96" rx="3" fill="url(#gPcbG)" stroke="#0c3b22"/><g fill="#c9ccd1"><rect x="411" y="198" width="5" height="16"/><rect x="420" y="198" width="5" height="16"/><rect x="429" y="198" width="5" height="16"/><rect x="438" y="198" width="5" height="16"/><rect x="411" y="236" width="5" height="16"/><rect x="420" y="236" width="5" height="16"/><rect x="429" y="236" width="5" height="16"/><rect x="438" y="236" width="5" height="16"/></g><rect x="404" y="209" width="48" height="30" rx="2" fill="url(#gBlk)" stroke="#000"/><circle cx="409" cy="234" r="2" fill="#8d9097"/><circle cx="413.5" cy="259" r="2" fill="#f2f5f8"/><circle cx="392" cy="188" r="4.5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="464" cy="188" r="4.5" fill="url(#gGold)" stroke="#7a5a12"/><text x="383" y="191.5" text-anchor="end" class="pbp">1 RX</text><text x="473" y="191.5" class="pbp">8 LI</text><circle cx="392" cy="212" r="4.5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="464" cy="212" r="4.5" fill="url(#gGold)" stroke="#7a5a12"/><text x="383" y="215.5" text-anchor="end" class="pbp">2 LO</text><text x="473" y="215.5" class="pbp">7 VS</text><circle cx="392" cy="236" r="4.5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="464" cy="236" r="4.5" fill="url(#gGold)" stroke="#7a5a12"/><text x="383" y="239.5" text-anchor="end" class="pbp">3 VCC</text><text x="473" y="239.5" class="pbp">6 K</text><circle cx="392" cy="260" r="4.5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="464" cy="260" r="4.5" fill="url(#gGold)" stroke="#7a5a12"/><text x="383" y="263.5" text-anchor="end" class="pbp">4 TX</text><text x="473" y="263.5" class="pbp">5 GND</text><text x="428" y="306" text-anchor="middle" class="pbl">L9637D · çentik yukarı</text></g><path d="M488 92H584" class="lead"/><rect x="508" y="84" width="56" height="16" rx="7" fill="url(#gBlk)" stroke="#000"/><rect x="514" y="84" width="6" height="16" fill="#c9ccd1"/><text x="536.0" y="78" text-anchor="middle" class="pbl">D1 1N4005</text><path d="M488 116V212" class="lead"/><rect x="481" y="134" width="14" height="60" rx="6" fill="url(#gRes)" stroke="#7b6438"/><rect x="481" y="142" width="14" height="4" fill="#6b3d1f"/><rect x="481" y="150" width="14" height="4" fill="#111"/><rect x="481" y="158" width="14" height="4" fill="#c62828"/><rect x="481" y="186" width="14" height="3" fill="#c8a03a"/><path d="M536 116V212" class="lead"/><rect x="529" y="134" width="14" height="60" rx="6" fill="url(#gRes)" stroke="#7b6438"/><rect x="529" y="142" width="14" height="4" fill="#6b3d1f"/><rect x="529" y="150" width="14" height="4" fill="#111"/><rect x="529" y="158" width="14" height="4" fill="#c62828"/><rect x="529" y="186" width="14" height="3" fill="#c8a03a"/><text x="512" y="168" text-anchor="middle" class="pbl">R1 R2</text><text x="562" y="168" text-anchor="start" class="pbs">2 × 1 kΩ</text><path d="M320 68V116" class="lead"/><ellipse cx="320" cy="92" rx="9" ry="11" fill="url(#gCap)" stroke="#8a4f12"/><text x="306" y="96.0" text-anchor="end" class="pbl">C2</text><path d="M464 68V116" class="lead"/><ellipse cx="464" cy="92" rx="9" ry="11" fill="url(#gCap)" stroke="#8a4f12"/><text x="450" y="96.0" text-anchor="end" class="pbl">C1</text><path d="M358 124V116a34 20 0 0 1 68 0V124Z" fill="url(#gCyl)" stroke="#000"/><circle cx="368" cy="116" r="3.4" fill="#c4c8ce" stroke="#555"/><rect x="357.1" y="124.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="368.0" y="133.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">OUT</text><circle cx="392" cy="116" r="3.4" fill="#c4c8ce" stroke="#555"/><rect x="381.1" y="124.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="392.0" y="133.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">GND</text><circle cx="416" cy="116" r="3.4" fill="#c4c8ce" stroke="#555"/><rect x="407.5" y="124.0" width="16.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="416.0" y="133.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">IN</text><text x="392" y="88" text-anchor="middle" class="pbl">U1 78L05</text><path d="M344 116C330 146 330 182 344 212" class="org o"/><path d="M344 116C330 146 330 182 344 212" class="org c"/><path d="M344 116C330 146 330 182 344 212" class="h"/><rect x="273.0" y="134.0" width="46.1" height="12" rx="3" fill="#f07f1a" stroke="#0b0c0d" stroke-width=".8"/><text x="296.0" y="143.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#23262b">5V teli</text><circle cx="560" cy="116" r="9" fill="none" stroke="#ff9a3c" stroke-width="2.5" stroke-dasharray="4 3"/><text x="572" y="108" text-anchor="start" class="pbs">B+</text><circle cx="440" cy="68" r="9" fill="none" stroke="#ff9a3c" stroke-width="2.5" stroke-dasharray="4 3"/><text x="452" y="60" text-anchor="start" class="pbs">B−</text><rect x="581.3" y="86.0" width="29.3" height="12" rx="3" fill="#b3261e" stroke="#0b0c0d" stroke-width=".8"/><text x="596.0" y="95.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">+12V</text><rect x="449.3" y="134.0" width="29.3" height="12" rx="3" fill="#b3261e" stroke="#0b0c0d" stroke-width=".8"/><text x="464.0" y="143.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">+12V</text><rect x="497.3" y="110.0" width="29.3" height="12" rx="3" fill="#b3261e" stroke="#0b0c0d" stroke-width=".8"/><text x="512.0" y="119.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">+12V</text><rect x="565.7" y="206.0" width="12.6" height="12" rx="3" fill="#f2c230" stroke="#0b0c0d" stroke-width=".8"/><text x="572.0" y="215.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#23262b">K</text><rect x="236.1" y="350.0" width="23.7" height="12" rx="3" fill="#2b2d30" stroke="#0b0c0d" stroke-width=".8"/><text x="248.0" y="359.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">GND</text><rect x="272.1" y="62.0" width="23.7" height="12" rx="3" fill="#2b2d30" stroke="#0b0c0d" stroke-width=".8"/><text x="284.0" y="71.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">GND</text><rect x="344.1" y="374.0" width="23.7" height="12" rx="3" fill="#2b2d30" stroke="#0b0c0d" stroke-width=".8"/><text x="356.0" y="383.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">GND</text><rect x="452.1" y="302.0" width="23.7" height="12" rx="3" fill="#2b2d30" stroke="#0b0c0d" stroke-width=".8"/><text x="464.0" y="311.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">GND</text><rect x="166.9" y="182.0" width="18.2" height="12" rx="3" fill="#2e9e4f" stroke="#0b0c0d" stroke-width=".8"/><text x="176.0" y="191.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">RX</text><rect x="166.9" y="254.0" width="18.2" height="12" rx="3" fill="#2f6fd6" stroke="#0b0c0d" stroke-width=".8"/><text x="176.0" y="263.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">TX</text><rect x="322.9" y="254.0" width="18.2" height="12" rx="3" fill="#2f6fd6" stroke="#0b0c0d" stroke-width=".8"/><text x="332.0" y="263.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">TX</text><rect x="164.1" y="206.0" width="23.7" height="12" rx="3" fill="#8e5bd1" stroke="#0b0c0d" stroke-width=".8"/><text x="176.0" y="215.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">3V3</text></svg>
+  <svg id="pbBot" viewBox="-100 0 1220 540" role="img" aria-label="Alt yüz, lehim tarafı, aynalı"><rect x="78" y="28" width="604" height="392" rx="8" fill="#1d6b3e" stroke="#0c3b22" stroke-width="2"/><rect x="140" y="56" width="480" height="336" fill="url(#pbPadG)"/><rect x="88" y="72.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="72.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="98.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="98.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="125.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="125.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="151.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="151.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="178.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="178.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="204.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="204.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="231.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="231.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="257.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="257.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="284.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="284.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="310.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="310.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="337.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="337.0" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="88" y="363.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><rect x="650" y="363.5" width="22" height="16" rx="8" fill="#d8c58a" stroke="#8f7a3c"/><circle cx="96" cy="44" r="6" fill="#e4e7e1" stroke="#0c3b22" stroke-width="1.5"/><circle cx="96" cy="404" r="6" fill="#e4e7e1" stroke="#0c3b22" stroke-width="1.5"/><circle cx="664" cy="44" r="6" fill="#e4e7e1" stroke="#0c3b22" stroke-width="1.5"/><circle cx="664" cy="404" r="6" fill="#e4e7e1" stroke="#0c3b22" stroke-width="1.5"/><text x="608" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">1</text><text x="584" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">2</text><text x="560" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">3</text><text x="536" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">4</text><text x="512" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">5</text><text x="488" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">6</text><text x="464" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">7</text><text x="440" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">8</text><text x="416" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">9</text><text x="392" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">10</text><text x="368" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">11</text><text x="344" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">12</text><text x="320" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">13</text><text x="296" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">14</text><text x="272" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">15</text><text x="248" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">16</text><text x="224" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">17</text><text x="200" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">18</text><text x="176" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">19</text><text x="152" y="44" text-anchor="middle" class="pg" style="fill:#cfe8d6">20</text><text x="128" y="71.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">A</text><text x="632" y="71.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">A</text><text x="128" y="95.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">B</text><text x="632" y="95.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">B</text><text x="128" y="119.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">C</text><text x="632" y="119.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">C</text><text x="128" y="143.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">D</text><text x="632" y="143.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">D</text><text x="128" y="167.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">E</text><text x="632" y="167.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">E</text><text x="128" y="191.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">F</text><text x="632" y="191.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">F</text><text x="128" y="215.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">G</text><text x="632" y="215.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">G</text><text x="128" y="239.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">H</text><text x="632" y="239.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">H</text><text x="128" y="263.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">I</text><text x="632" y="263.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">I</text><text x="128" y="287.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">J</text><text x="632" y="287.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">J</text><text x="128" y="311.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">K</text><text x="632" y="311.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">K</text><text x="128" y="335.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">L</text><text x="632" y="335.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">L</text><text x="128" y="359.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">M</text><text x="632" y="359.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">M</text><text x="128" y="383.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">N</text><text x="632" y="383.5" text-anchor="middle" class="pg" style="fill:#cfe8d6">N</text><polyline points="152,92 176,92" class="red o"/><polyline points="152,92 176,92" class="red c"/><polyline points="152,92 176,92" class="h"/><polyline points="272,92 272,116" class="red o"/><polyline points="272,92 272,116" class="red c"/><polyline points="272,92 272,116" class="h"/><polyline points="344,116 200,116" class="red o"/><polyline points="344,116 200,116" class="red c"/><polyline points="344,116 200,116" class="h"/><polyline points="296,116 296,188 320,188" class="red o"/><polyline points="296,116 296,188 320,188" class="red c"/><polyline points="296,116 296,188 320,188" class="h"/><polyline points="320,212 152,212" class="yel o"/><polyline points="320,212 152,212" class="yel c"/><polyline points="320,212 152,212" class="h"/><polyline points="392,116 440,116" class="org o"/><polyline points="392,116 440,116" class="org c"/><polyline points="392,116 440,116" class="h"/><polyline points="464,212 392,212" class="org o"/><polyline points="464,212 392,212" class="org c"/><polyline points="464,212 392,212" class="h"/><polyline points="512,68 512,380" class="blk o"/><polyline points="512,68 512,380" class="blk c"/><polyline points="512,68 512,380" class="h"/><polyline points="512,68 296,68" class="blk o"/><polyline points="512,68 296,68" class="blk c"/><polyline points="512,68 296,68" class="h"/><polyline points="368,116 368,68" class="blk o"/><polyline points="368,116 368,68" class="blk c"/><polyline points="368,116 368,68" class="h"/><polyline points="608,236 464,236" class="blk o"/><polyline points="608,236 464,236" class="blk c"/><polyline points="608,236 464,236" class="h"/><polyline points="320,236 296,236 296,380" class="blk o"/><polyline points="320,236 296,236 296,380" class="blk c"/><polyline points="320,236 296,236 296,380" class="h"/><polyline points="512,380 152,380" class="blk o"/><polyline points="512,380 152,380" class="blk c"/><polyline points="512,380 152,380" class="h"/><polyline points="152,356 152,380" class="blk o"/><polyline points="152,356 152,380" class="blk c"/><polyline points="152,356 152,380" class="h"/><polyline points="608,188 560,188" class="grn o"/><polyline points="608,188 560,188" class="grn c"/><polyline points="608,188 560,188" class="h"/><polyline points="464,188 440,188 440,164 392,164" class="grn o"/><polyline points="464,188 440,188 440,164 392,164" class="grn c"/><polyline points="464,188 440,188 440,164 392,164" class="h"/><polyline points="608,260 560,260" class="blu o"/><polyline points="608,260 560,260" class="blu c"/><polyline points="608,260 560,260" class="h"/><polyline points="464,260 392,260 392,236" class="blu o"/><polyline points="464,260 392,260 392,236" class="blu c"/><polyline points="464,260 392,260 392,236" class="h"/><polyline points="608,212 560,212" class="pur o"/><polyline points="608,212 560,212" class="pur c"/><polyline points="608,212 560,212" class="h"/><circle cx="608" cy="188" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="608" cy="212" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="608" cy="236" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="608" cy="260" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="560" cy="164" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="560" cy="188" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="560" cy="212" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="560" cy="236" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="560" cy="260" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="560" cy="284" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="464" cy="164" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="464" cy="188" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="464" cy="212" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="464" cy="236" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="464" cy="260" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="464" cy="284" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="392" cy="164" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="392" cy="188" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="392" cy="212" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="392" cy="236" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="320" cy="164" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="320" cy="188" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="320" cy="212" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="320" cy="236" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="392" cy="116" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="368" cy="116" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="344" cy="116" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="440" cy="68" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="440" cy="116" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="296" cy="68" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="296" cy="116" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="272" cy="92" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="176" cy="92" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="272" cy="116" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="272" cy="212" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="224" cy="116" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="224" cy="212" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="152" cy="92" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="152" cy="212" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="152" cy="356" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="152" cy="380" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="416" cy="116" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><circle cx="416" cy="212" r="5.2" fill="#d4d8dd" stroke="#6f747b" stroke-width="1.2"/><rect x="594" y="174" width="28" height="100" rx="4" class="pgh"/><text x="608.0" y="290" text-anchor="middle" class="pbl">J2</text><rect x="446" y="146" width="132" height="156" rx="4" class="pgh"/><text x="512.0" y="318" text-anchor="middle" class="pbl">seviye dön.</text><rect x="306" y="150" width="100" height="100" rx="4" class="pgh"/><text x="356.0" y="266" text-anchor="middle" class="pbl">L9637D</text><rect x="334" y="106" width="68" height="20" rx="4" class="pgh"/><text x="368" y="96" text-anchor="middle" class="pbl">78L05</text><text x="224" y="80" text-anchor="middle" class="pbl">D1</text><circle cx="416" cy="116" r="9" fill="none" stroke="#ff9a3c" stroke-width="2.5"/><circle cx="416" cy="212" r="9" fill="none" stroke="#ff9a3c" stroke-width="2.5"/><rect x="395.1" y="123.0" width="41.7" height="12" rx="3" fill="#f07f1a" stroke="#0b0c0d" stroke-width=".8"/><text x="416.0" y="132.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#23262b">5V teli</text><rect x="403.1" y="234.0" width="41.7" height="12" rx="3" fill="#f07f1a" stroke="#0b0c0d" stroke-width=".8"/><text x="424.0" y="243.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#23262b">5V teli</text><circle cx="200" cy="116" r="9" fill="none" stroke="#ff9a3c" stroke-width="2.5" stroke-dasharray="4 3"/><text x="188" y="108" text-anchor="end" class="pbs">B+</text><circle cx="320" cy="68" r="9" fill="none" stroke="#ff9a3c" stroke-width="2.5" stroke-dasharray="4 3"/><text x="308" y="60" text-anchor="end" class="pbs">B−</text><text x="66" y="96" text-anchor="end" class="pin">OBD 16 · +12V · B20</text><text x="66" y="216" text-anchor="end" class="pin">OBD 7 · K · G20</text><text x="66" y="360" text-anchor="end" class="pin">OBD 4 · GND · M20</text><text x="66" y="384" text-anchor="end" class="pin">OBD 5 · GND · N20</text><text x="694" y="192" text-anchor="start" class="pin">J2 · RX</text><text x="694" y="216" text-anchor="start" class="pin">J2 · 3V3</text><text x="694" y="240" text-anchor="start" class="pin">J2 · GND</text><text x="694" y="264" text-anchor="start" class="pin">J2 · TX</text><rect x="149.3" y="86.0" width="29.3" height="12" rx="3" fill="#b3261e" stroke="#0b0c0d" stroke-width=".8"/><text x="164.0" y="95.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">+12V</text><rect x="281.3" y="122.0" width="29.3" height="12" rx="3" fill="#b3261e" stroke="#0b0c0d" stroke-width=".8"/><text x="296.0" y="131.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">+12V</text><rect x="233.3" y="110.0" width="29.3" height="12" rx="3" fill="#b3261e" stroke="#0b0c0d" stroke-width=".8"/><text x="248.0" y="119.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">+12V</text><rect x="181.7" y="206.0" width="12.6" height="12" rx="3" fill="#f2c230" stroke="#0b0c0d" stroke-width=".8"/><text x="188.0" y="215.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#23262b">K</text><rect x="418.9" y="206.0" width="18.2" height="12" rx="3" fill="#f07f1a" stroke="#0b0c0d" stroke-width=".8"/><text x="428.0" y="215.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#23262b">5V</text><rect x="500.1" y="350.0" width="23.7" height="12" rx="3" fill="#2b2d30" stroke="#0b0c0d" stroke-width=".8"/><text x="512.0" y="359.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">GND</text><rect x="464.1" y="62.0" width="23.7" height="12" rx="3" fill="#2b2d30" stroke="#0b0c0d" stroke-width=".8"/><text x="476.0" y="71.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">GND</text><rect x="392.1" y="374.0" width="23.7" height="12" rx="3" fill="#2b2d30" stroke="#0b0c0d" stroke-width=".8"/><text x="404.0" y="383.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">GND</text><rect x="284.1" y="302.0" width="23.7" height="12" rx="3" fill="#2b2d30" stroke="#0b0c0d" stroke-width=".8"/><text x="296.0" y="311.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">GND</text><rect x="500.1" y="230.0" width="23.7" height="12" rx="3" fill="#2b2d30" stroke="#0b0c0d" stroke-width=".8"/><text x="512.0" y="239.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">GND</text><rect x="574.9" y="182.0" width="18.2" height="12" rx="3" fill="#2e9e4f" stroke="#0b0c0d" stroke-width=".8"/><text x="584.0" y="191.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">RX</text><rect x="406.9" y="158.0" width="18.2" height="12" rx="3" fill="#2e9e4f" stroke="#0b0c0d" stroke-width=".8"/><text x="416.0" y="167.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">RX</text><rect x="574.9" y="254.0" width="18.2" height="12" rx="3" fill="#2f6fd6" stroke="#0b0c0d" stroke-width=".8"/><text x="584.0" y="263.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">TX</text><rect x="418.9" y="254.0" width="18.2" height="12" rx="3" fill="#2f6fd6" stroke="#0b0c0d" stroke-width=".8"/><text x="428.0" y="263.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">TX</text><rect x="572.1" y="206.0" width="23.7" height="12" rx="3" fill="#8e5bd1" stroke="#0b0c0d" stroke-width=".8"/><text x="584.0" y="215.2" text-anchor="middle" style="font:600 9px var(--mono);fill:#fff">3V3</text><rect x="549.1" y="145.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="560.0" y="154.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">LV1</text><rect x="549.1" y="169.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="560.0" y="178.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">LV2</text><rect x="551.5" y="193.0" width="16.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="560.0" y="202.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">LV</text><rect x="549.1" y="217.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="560.0" y="226.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">GND</text><rect x="549.1" y="241.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="560.0" y="250.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">LV3</text><rect x="549.1" y="265.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="560.0" y="274.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">LV4</text><rect x="453.1" y="145.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="464.0" y="154.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">HV1</text><rect x="453.1" y="169.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="464.0" y="178.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">HV2</text><rect x="455.5" y="193.0" width="16.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="464.0" y="202.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">HV</text><rect x="453.1" y="217.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="464.0" y="226.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">GND</text><rect x="453.1" y="241.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="464.0" y="250.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">HV3</text><rect x="453.1" y="265.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="464.0" y="274.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">HV4</text><rect x="378.6" y="145.0" width="26.8" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="392.0" y="154.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">1 RX</text><rect x="378.6" y="169.0" width="26.8" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="392.0" y="178.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">2 LO</text><rect x="376.1" y="193.0" width="31.8" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="392.0" y="202.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">3 VCC</text><rect x="378.6" y="217.0" width="26.8" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="392.0" y="226.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">4 TX</text><rect x="306.6" y="145.0" width="26.8" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="320.0" y="154.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">8 LI</text><rect x="306.6" y="169.0" width="26.8" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="320.0" y="178.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">7 VS</text><rect x="309.1" y="193.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="320.0" y="202.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">6 K</text><rect x="304.1" y="217.0" width="31.8" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="320.0" y="226.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">5 GND</text><rect x="381.1" y="97.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="392.0" y="106.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">OUT</text><rect x="357.1" y="97.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="368.0" y="106.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">GND</text><rect x="335.5" y="97.0" width="16.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="344.0" y="106.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">IN</text><rect x="429.1" y="75.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="440.0" y="84.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">C2−</text><rect x="429.1" y="97.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="440.0" y="106.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">C2+</text><rect x="285.1" y="75.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="296.0" y="84.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">C1−</text><rect x="285.1" y="97.0" width="21.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="296.0" y="106.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">C1+</text><rect x="263.5" y="97.0" width="16.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="272.0" y="106.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">R1</text><rect x="263.5" y="193.0" width="16.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="272.0" y="202.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">R1</text><rect x="215.5" y="97.0" width="16.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="224.0" y="106.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">R2</text><rect x="215.5" y="193.0" width="16.9" height="12" rx="3" fill="#f6f5f0" stroke="#0b0c0d" stroke-width=".8"/><text x="224.0" y="202.2" text-anchor="middle" style="font:600 8px var(--mono);fill:#1b1d20">R2</text></svg>
+  </div>
+
+  <div class="panel">
+   <div class="meta"><span id="grp"></span><span id="cnt"></span></div>
+   <h2 class="ttl" id="ttl"></h2>
+   <p class="do" id="do"></p>
+   <div>
+    <div class="lbl">Multimetrede görmen gereken</div>
+    <div class="expect"><span class="v" id="ev"></span><span class="mode" id="em"></span></div>
+   </div>
+   <div>
+    <div class="lbl" id="alab">Ölçtüğün değer</div>
+    <div class="answer" id="answer"></div>
+   </div>
+   <div class="res" id="res"></div>
+   <div class="checks" id="checks"></div>
+   <div class="final card" id="final"></div>
+   <div class="nav">
+    <button id="prev">← Geri</button>
+    <button id="next" class="primary">İleri →</button>
+   </div>
+  </div>
+ </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+// ---- Plaket koordinatları (montaj rehberindeki 40 × 60 çizimle aynı) ----
+// Satır A–N yukarıdan aşağı, sütun 1–20 soldan sağa · alt yüz aynalıdır
+const ROWS = 'ABCDEFGHIJKLMN';
+let MIR = true;
+function P(n) {
+ const r = ROWS.indexOf(n[0]), c = +n.slice(1);
+ return [152 + ((MIR ? 21 - c : c) - 1) * 24, 68 + r * 24];
+}
+const NAME = {
+ E10:'E10 · L9637D pin 1 (RX)', G10:'G10 · L9637D pin 3 (VCC)', H10:'H10 · L9637D pin 4 (TX)',
+ H13:'H13 · L9637D pin 5 (GND)', G13:'G13 · L9637D pin 6 (K)', F13:'F13 · L9637D pin 7 (VS)',
+ B20:'B20 · OBD 16 teli (+12 V)', B15:'B15 · D1 bantlı ucu (katot)', C14:'C14 · C1 + (diyot sonrası 12 V)',
+ C10:'C10 · 78L05 OUT', C8:'C8 · C2 + (5 V)', A8:'A8 · C2 − (GND)', G9:'G9 · 5V telinin G ucu',
+ G7:'G7 · dönüştürücü HV', G3:'G3 · dönüştürücü LV', F7:'F7 · dönüştürücü HV2', I7:'I7 · dönüştürücü HV3',
+ F1:'F1 · J2 RX pini (LV2)', I1:'I1 · J2 TX pini (LV3)', H1:'H1 · J2 GND pini',
+ G20:'G20 · OBD 7 teli (K)', G18:'G18 · K köprüsü', N18:'N18 · GND köprüsü', N20:'N20 · OBD 5 teli (GND)', M20:'M20 · OBD 4 teli (GND)'};
+const where = n => NAME[n] || n;
+
+// Alt yüz köprüleri ve kablolar: hata kontrolünde parlatılır
+const W = {
+ v12in:['B20','B19'], d1out:['B15','C15'], in78:['C12','C18'], vs:['C14','F14','F13'], k:['G13','G20'],
+ out78:['C10','C8'], hv5:['G7','G10'], j5v:['C9','G9'],
+ spine:['A5','N5'], gndA:['A5','A14'], gnd78:['C11','A11'], gndJ2:['H1','H7'], gndIc:['H13','H14','N14'], gndN:['N5','N20'], gndObd:['M20','N20'],
+ rxJ2:['F1','F3'], rx:['F7','F8','E8','E10'], txJ2:['I1','I3'], tx:['I7','I10','H10'], v33:['G1','G3'],
+ obd16:['B20','>'], obd7:['G20','>'], obd4:['M20','>'], obd5:['N20','>'],
+ espGnd:{top:'M-70 188C20 188 60 236 152 236', bot:['H1','>']}, esp3v3:{top:'M-70 212H152', bot:['G1','>']},
+ espRx:{top:'M-70 236C20 236 60 188 152 188', bot:['F1','>']}, espTx:{top:'M-70 260H152', bot:['I1','>']},
+};
+// Parçalar: köşe delikleri (iki yüzde de aynı kutu)
+const B = {shifter:['E3','J7'], ic:['E10','H13'], r12:['C15','G17'], d1:['B15','B19'], u78:['C10','C12'],
+ c1:['A14','C14'], c2:['A8','C8'], j2:['F1','I1'], esp:{top:[-262,150,210,140], bot:['F1','I1']}};
+function box(n) {
+ let b = B[n];
+ if (!Array.isArray(b)) b = MIR ? b.bot : b.top;
+ if (typeof b[0] === 'number') return b;
+ const [p, q] = b.map(P), pad = 12;
+ const x = Math.min(p[0], q[0]) - pad, y = Math.min(p[1], q[1]) - pad;
+ return [x, y, Math.abs(q[0] - p[0]) + 2 * pad, Math.abs(q[1] - p[1]) + 2 * pad];
+}
+
+const GND = 'N20';            // siyah probun sabit yeri (krokodille)
+const MM = {x:870, y:40};      // multimetre gövdesi
+const JACK = {red:[MM.x + 145, MM.y + 304], black:[MM.x + 65, MM.y + 304]};
+const PARK = {red:[MM.x + 160, MM.y + 390], black:[MM.x + 50, MM.y + 390]};
+
+// ---- Adımlar ----
+// mode: V / Ω / diyot / bip · red, black: prob deliği · jump: [GND noktası, hedef] · flow: sinyalin geçtiği hatlar
+// checks: [metin, parlatılacak yer] · yer: hat adı ya da parça adı
+const S = [
+ {g:'Hazırlık', t:'J2\'deki TX ve RX tellerini çıkar', do:'J2 başlığından <b>RX (F1)</b> ve <b>TX (I1)</b> tellerini çıkar. GND (H1) ve 3V3 (G1) kalsın. <b>Kartın USB kablosunu da çıkar</b>, adaptör de bağlı olmasın: enerjisiz ölçümlerde devrede hiç gerilim olmamalı. Probu <b>lehim tarafındaki</b> noktalara değdir; delik adı iki yüzde aynıdır, çizimi yukarıdaki düğmeyle çevirebilirsin.',
+  type:'yn', exp:'y', q:'Teller ve USB çıkarıldı mı?', xmark:['F1','I1'], hl:['espRx','espTx'], checks:[]},
+
+ {g:'Enerjisiz', t:'Pull-up direnci: pin 7 ↔ pin 6', do:'Multimetre <b>Ω</b>. Kırmızı prob F13 (pin 7, VS), siyah prob G13 (pin 6, K). Paralel iki 1 kΩ ≈ 500 Ω yapar.',
+  mode:'Ω', red:'F13', black:'G13', type:'v', min:440, max:580, typ:500, u:'Ω', scale:'k',
+  checks:[['≈1000 Ω: dirençlerden biri bağlı değil. R1 (C15–G15) ve R2 (C17–G17) lehimlerine bak.','r12'],
+          ['OL: K köprüsü G13 → G20 kopuk ya da dirençlerin G ucu köprüye lehimlenmemiş.','k'],
+          ['OL: +12 V köprüsü C14 → F14 → F13 kopuk.','vs'],
+          ['≈0 Ω: F13 ile G13 lehimleri birbirine taşmış (yan yana delikler).','ic']]},
+ {g:'Enerjisiz', t:'D1 diyotunun yönü', do:'Multimetre <b>diyot</b> modu. Kırmızı prob B20 (OBD 16 teli, anot tarafı), siyah prob B15 (bantlı uç, katot). Çoğu multimetre diyot modunda <b>mV</b> gösterir: ekranda 550 görürsen 0,55 V demektir, olduğu gibi yazabilirsin.',
+  mode:'diyot', red:'B20', black:'B15', type:'v', min:0.40, max:0.75, typ:0.55, u:'V', scale:'m',
+  checks:[['USB ya da adaptör takılıysa çıkar ve tekrar ölç: devrede gerilim varken diyot ölçümü yanlış çıkar (ör. 1000 mV üstü).','esp3v3'],
+          ['Probları ters çevir (kırmızı B15, siyah B20): OL görmelisin. İki yönde de değer çıkıyorsa ölçüm başka yoldan geçiyor.','d1'],
+          ['OL: diyot ters takılı (gri bant B15 tarafında olmalı) ya da B20 → B19 köprüsü kopuk.','v12in'],
+          ['≈0 V: diyot kısa ya da B15–B19 arasında lehim taşması var.','d1']]},
+ {g:'Enerjisiz', t:'+12 V hattı ↔ GND kısa olmamalı', do:'Multimetre <b>bip</b>. Kırmızı prob C14 (C1 +), siyah prob N20 (GND). İlk anda kısa bir bip (kondansatör dolarken) normaldir; <b>sürekli</b> bip kısa devredir.',
+  mode:'bip', red:'C14', black:GND, type:'yn', exp:'n', q:'Sürekli bip var mı?', disp:'OL',
+  checks:[['C1 lehimleri: A14 (−) ile C14 (+) arasında, B14\'e lehim taşmış mı?','c1'],
+          ['78L05: C11 (GND) ile C12 (IN) lehimleri birbirine değiyor mu?','u78'],
+          ['A sırasındaki GND köprüsü (A5 → A14) B sırasına taşmış mı?','gndA'],
+          ['Entegre ters takılıysa VS ile GND kısa görünebilir: çentik yukarı, pin 1 E10.','ic']]},
+ {g:'Enerjisiz', t:'+5 V hattı ↔ GND kısa olmamalı', do:'Kırmızı prob C8 (C2 +), siyah prob A8 (C2 −). Sürekli bip olmamalı.',
+  mode:'bip', red:'C8', black:'A8', type:'yn', exp:'n', q:'Sürekli bip var mı?', disp:'OL',
+  checks:[['C2 lehimleri: A8 ile C8 arasında, B8\'e lehim taşmış mı?','c2'],
+          ['78L05: C10 (OUT) ile C11 (GND) lehimleri birbirine değiyor mu?','u78'],
+          ['G7 (HV) ile H7 (GND) yan yana: arada lehim köprüsü var mı?','hv5'],
+          ['5V teli (C9 → G9) izolesi sıyrılıp başka lehime değiyor mu?','j5v']]},
+ {g:'Enerjisiz', t:'pin 3 (VCC) ↔ 78L05 OUT', do:'Kırmızı prob G10 (pin 3), siyah prob C10 (78L05 OUT). Bip <b>olmalı</b>. 5 V, C sırasından üstteki izoleli tel ile G sırasına geçer.',
+  mode:'bip', red:'G10', black:'C10', type:'yn', exp:'y', q:'Bip var mı?', disp:'bip', flow:['out78','j5v','hv5'],
+  checks:[['5V teli C9 → G9: iki ucu da lehimli mi?','j5v'],
+          ['C8 → C10 köprüsü C9 lehimine bağlı mı?','out78'],
+          ['G7 → G10 köprüsü G9\'daki tele bağlı mı?','hv5'],
+          ['Adaptörde pin 3 lehimi: entegre bacağından soket pinine bip var mı?','ic']]},
+ {g:'Enerjisiz', t:'pin 5 (GND) ↔ GND', do:'Kırmızı prob H13 (pin 5), siyah prob N20. Bip olmalı.',
+  mode:'bip', red:'H13', black:GND, type:'yn', exp:'y', q:'Bip var mı?', disp:'bip', flow:['gndIc','gndN'],
+  checks:[['H13 → H14 → N14 köprüsü.','gndIc'],['N sırasındaki GND köprüsü N5 → N20.','gndN'],['Adaptörde pin 5 lehimi.','ic']]},
+ {g:'Enerjisiz', t:'pin 4 (TX) ↔ HV3', do:'Kırmızı prob H10 (pin 4), siyah prob I7 (HV3). Mavi TX köprüsü bunları bağlar, bip olmalı.',
+  mode:'bip', red:'H10', black:'I7', type:'yn', exp:'y', q:'Bip var mı?', disp:'bip', flow:['tx'],
+  checks:[['TX köprüsü I7 → I10 → H10.','tx'],
+          ['Modül ters takılıysa I7\'de HV3 olmaz: HV sütunu sağda (7. sütun), yukarıdan HV1, HV2, HV, GND, HV3, HV4.','shifter']]},
+ {g:'Enerjisiz', t:'pin 1 (RX) ↔ HV2', do:'Kırmızı prob E10 (pin 1), siyah prob F7 (HV2). Yeşil RX köprüsü bunları bağlar, bip olmalı.',
+  mode:'bip', red:'E10', black:'F7', type:'yn', exp:'y', q:'Bip var mı?', disp:'bip', flow:['rx'],
+  checks:[['RX köprüsü F7 → F8 → E8 → E10.','rx'],['Adaptörde pin 1 lehimi.','ic']]},
+
+ {g:'Besleme', t:'Adaptörü bağla', do:'12 V adaptörün <b>+</b> ucunu OBD 16 teline (B20), <b>−</b> ucunu OBD 4 teline (M20) bağla. Kartı USB yazan Type-C\'den besle. Multimetreyi <b>V⎓</b> konumuna al; siyah probu krokodille <b>N20</b>\'ye sabitle, artık hep orada.',
+  mode:'V', black:GND, type:'yn', exp:'y', q:'Bağladın mı?', flow:['obd16','obd4','esp3v3','espGnd'], checks:[]},
+ {g:'Besleme', t:'Besleme gerilimi (OBD 16)', do:'Kırmızı prob B20 (OBD 16 teli). Ölçtüğün değeri yaz; sonraki aralıklar buna göre hesaplanır.',
+  mode:'V', red:'B20', black:GND, type:'v', min:8, max:15, typ:12.4, u:'V', vs:true,
+  checks:[['Eksi değer: adaptör ters bağlı.','obd16'],['0 V: OBD 16 teli B20\'ye ya da adaptöre bağlı değil.','obd16'],['GND tarafı: M20 → N20 köprüsü.','gndObd']]},
+ {g:'Besleme', t:'Diyot sonrası 12 V', do:'Kırmızı prob C14 (C1 +). Beslemeden ≈0,6 V düşük olmalı.',
+  mode:'V', red:'C14', black:GND, type:'v', min:vs=>vs-1, max:vs=>vs-0.35, typ:vs=>vs-0.6, u:'V', flow:['obd16','v12in','d1out'],
+  checks:[['0 V: D1 ters (gri bant B15 tarafında olmalı).','d1'],
+          ['B15 → C15 köprüsü C sırasındaki +12 V köprüsüne (C12 → C18) bağlı mı?','d1out'],
+          ['Besleme ile aynı: D1 kısa ya da B15–B19 arasında lehim taşması.','d1']]},
+ {g:'Besleme', t:'78L05 çıkışı', do:'Kırmızı prob C10 (78L05 OUT).',
+  mode:'V', red:'C10', black:GND, type:'v', min:4.8, max:5.2, typ:5.0, u:'V', flow:['in78'],
+  checks:[['0 V: 78L05 ters takılı. Düz yazılı yüz D sırasına bakmalı: C10 OUT, C11 GND, C12 IN.','u78'],
+          ['GND bacağı bağlı değil: C11 → A11 köprüsü.','gnd78'],
+          ['Girişe yakın (≈11 V): bacaklar karışık.','u78'],
+          ['IN gelmiyor: C12 → C18 köprüsü.','in78'],
+          ['78L05 ısınıyorsa 5 V tarafında kısa var, beslemeyi kes.','u78']]},
+ {g:'Besleme', t:'5V telinin G ucu', do:'Kırmızı prob G9 (izoleli 5V telinin G sırasındaki ucu).',
+  mode:'V', red:'G9', black:GND, type:'v', min:4.8, max:5.2, typ:5.0, u:'V', flow:['out78','j5v'],
+  checks:[['C10 doğru ama burada yoksa 5V teli C9 → G9 lehimleri.','j5v'],
+          ['C8 → C10 köprüsü C9\'dan geçiyor mu?','out78']]},
+ {g:'Besleme', t:'L9637D pin 7 (VS)', do:'Kırmızı prob F13 (pin 7).',
+  mode:'V', red:'F13', black:GND, type:'v', min:vs=>vs-1, max:vs=>vs-0.35, typ:vs=>vs-0.6, u:'V', flow:['vs'],
+  checks:[['C14 → F14 → F13 köprüsü.','vs'],['Adaptörde pin 7 lehimi.','ic']]},
+ {g:'Besleme', t:'L9637D pin 3 (VCC)', do:'Kırmızı prob G10 (pin 3).',
+  mode:'V', red:'G10', black:GND, type:'v', min:4.8, max:5.2, typ:5.0, u:'V', flow:['j5v','hv5'],
+  checks:[['G7 → G10 köprüsü G9\'daki 5V teline bağlı mı?','hv5'],['Adaptörde pin 3 lehimi.','ic']]},
+ {g:'Besleme', t:'L9637D pin 5 (GND)', do:'Kırmızı prob H13 (pin 5). 0 V olmalı.',
+  mode:'V', red:'H13', black:GND, type:'v', min:-0.05, max:0.05, typ:0, u:'V', flow:['gndIc','gndN'],
+  checks:[['H13 → H14 → N14 köprüsü.','gndIc'],['N5 → N20 köprüsü.','gndN']]},
+ {g:'Besleme', t:'Dönüştürücü HV pini', do:'Kırmızı prob G7 (HV).',
+  mode:'V', red:'G7', black:GND, type:'v', min:4.8, max:5.2, typ:5.0, u:'V', flow:['hv5'],
+  checks:[['G7 → G10 köprüsü.','hv5'],['Modül GND\'si: H1 → H7 köprüsü ve A5 → N5 GND omurgası.','gndJ2']]},
+ {g:'Besleme', t:'Dönüştürücü LV pini', do:'Kırmızı prob G3 (LV). Kartın 3V3\'ü J2 G1\'den buraya girer.',
+  mode:'V', red:'G3', black:GND, type:'v', min:2.8, max:3.5, typ:3.3, u:'V', flow:['esp3v3','v33'],
+  checks:[['0 V: J2 3V3 teli, G1 → G3 köprüsü ya da kart beslenmiyor (USB Type-C).','v33'],
+          ['Kart GND\'si: J2 GND teli ve H1 → H7 köprüsü.','gndJ2'],
+          ['≈5 V: modül ters takılı (HV ile LV yer değişmiş). ESP\'yi bu haliyle bağlama!','shifter']]},
+
+ {g:'Boşta', t:'pin 6 (K) boşta', do:'Kırmızı prob G13 (pin 6). 500 Ω pull-up K hattını VS\'ye çeker.',
+  mode:'V', red:'G13', black:GND, type:'v', min:vs=>vs-1.3, max:vs=>vs-0.3, typ:vs=>vs-0.6, u:'V', flow:['k'],
+  checks:[['Pull-up dirençleri R1 / R2.','r12'],
+          ['0 V ve pin 4 HIGH ise entegre K\'yı bırakmıyor: adaptör yönü yanlış ya da entegre arızalı.','ic'],
+          ['K köprüsü G13 → G20 komşu F ya da H lehimlerine değiyor mu?','k']]},
+ {g:'Boşta', t:'pin 4 (TX) boşta', do:'Kırmızı prob H10 (pin 4). Dönüştürücünün HV3 pull-up\'ı 5 V\'a çeker.',
+  mode:'V', red:'H10', black:GND, type:'v', min:4.4, max:5.2, typ:4.9, u:'V', flow:['tx'],
+  checks:[['TX köprüsü I7 → I10 → H10.','tx'],['Dönüştürücünün HV beslemesi (HV pini adımı).','hv5']]},
+ {g:'Boşta', t:'pin 1 (RX) boşta', do:'Kırmızı prob E10 (pin 1). K HIGH iken RX de HIGH.',
+  mode:'V', red:'E10', black:GND, type:'v', min:4.4, max:5.2, typ:4.9, u:'V', flow:['rx'],
+  checks:[['Önce pin 6 (K) boşta adımı geçti mi? K LOW ise RX de LOW olur.','ic'],['RX köprüsü F7 → F8 → E8 → E10; F8 ile G8 arasında taşma var mı?','rx']]},
+ {g:'Boşta', t:'LV3 boşta (ESP TX tarafı)', do:'Kırmızı prob J2\'nin I1 pini (TX teli çıkarıldı, I1 → I3 köprüsüyle LV3\'e bağlı).',
+  mode:'V', red:'I1', black:GND, type:'v', min:2.8, max:3.5, typ:3.3, u:'V', flow:['txJ2'],
+  checks:[['≈5 V: modül ters takılı.','shifter'],['0 V: I1/I3 lehimi yandaki H1/H3 (GND) lehimine taşmış ya da LV beslemesi yok.','txJ2']]},
+ {g:'Boşta', t:'LV2 boşta (ESP RX tarafı)', do:'Kırmızı prob J2\'nin F1 pini (F1 → F3 köprüsüyle LV2\'ye bağlı).',
+  mode:'V', red:'F1', black:GND, type:'v', min:2.8, max:3.5, typ:3.3, u:'V', flow:['rxJ2'],
+  checks:[['≈5 V: modül ters takılı.','shifter'],['0 V: RX zinciri sürekli LOW (pin 1 boşta adımına bak).','rx']]},
+
+ {g:'Sinyal', t:'L9637D TX sürücüsü: pin 4 → GND', do:'Kısa bir tel ya da cımbızla lehim tarafında <b>H10</b> (pin 4) ile <b>H13</b> (pin 5, GND) lehimlerini birbirine değdir. Kırmızı prob G20 (K). Entegre K\'yı aşağı çekmeli.',
+  mode:'V', red:'G20', black:GND, jump:['H13','H10'], type:'v', min:-0.1, max:1.4, typ:0.8, u:'V', flow:['k'],
+  checks:[['VS, VCC ve GND adımları geçtiyse adaptör yönü: çentik yukarı, pin 1 E10.','ic'],
+          ['Tel gerçekten H10 ve H13 lehimlerine değiyor mu?','ic'],
+          ['Hepsi doğruysa entegre arızalı.','ic']]},
+ {g:'Sinyal', t:'Yankı: pin 4 → GND iken pin 1', do:'Tel H10–H13 arasında. Kırmızı prob E10 (pin 1, RX). K\'daki düşüş RX\'e yansımalı.',
+  mode:'V', red:'E10', black:GND, jump:['H13','H10'], type:'v', min:-0.1, max:0.6, typ:0.2, u:'V', flow:['k'],
+  checks:[['K iniyor ama RX inmiyor: adaptörde pin 1 lehimi ya da entegrenin RX çıkışı.','ic']]},
+ {g:'Sinyal', t:'Yankı ESP\'ye ulaşıyor mu: LV2', do:'Tel H10–H13 arasında. Kırmızı prob F1 (J2 RX pini). ESP\'nin GPIO43\'te göreceği değer budur.',
+  mode:'V', red:'F1', black:GND, jump:['H13','H10'], type:'v', min:-0.1, max:0.5, typ:0.15, u:'V', flow:['rx','rxJ2'],
+  checks:[['Pin 1 iniyor ama F1 inmiyor: RX köprüsü F7 → F8 → E8 → E10 ya da F1 → F3.','rx'],
+          ['Dönüştürücünün 2. kanalı arızalı olabilir: F7 (HV2) iniyor mu, ona bak.','shifter'],
+          ['LV beslemesi (LV pini adımı).','v33']]},
+ {g:'Sinyal', t:'L9637D RX alıcısı: K → GND', do:'H10–H13 telini kaldır. Şimdi lehim tarafında K köprüsünü (<b>G18</b>) N sırasındaki GND köprüsüne (<b>N18</b>) birkaç saniye değdir. Kırmızı prob E10 (pin 1). ECU\'nun cevabını taklit eder.',
+  mode:'V', red:'E10', black:GND, jump:['N18','G18'], type:'v', min:-0.1, max:0.6, typ:0.2, u:'V', flow:['rx'],
+  checks:[['VCC doğruysa RX alıcısı çalışmıyor: entegre arızalı.','ic'],['Pin 1 lehimi.','ic']]},
+ {g:'Sinyal', t:'Dönüştürücü TX kanalı: LV3 → GND', do:'Dişi-dişi bir jumper ile J2\'de <b>I1</b> (TX) ve <b>H1</b> (GND) pinlerini birleştir. Kırmızı prob I7 (HV3). Bu, ESP\'nin TX\'i LOW yapmasının aynısıdır.',
+  mode:'V', red:'I7', black:GND, jump:['H1','I1'], type:'v', min:-0.1, max:0.5, typ:0.1, u:'V', flow:['txJ2'],
+  checks:[['LV beslemesi 3.3 V mi (LV pini adımı)? Gate\'ler oradan beslenir.','v33'],
+          ['I1 → I3 köprüsü.','txJ2'],
+          ['Kanal 3 arızalı: modülü değiştir.','shifter']]},
+ {g:'Sinyal', t:'Tam zincir: LV3 → GND iken K', do:'Jumper I1–H1 arasında. Kırmızı prob G20 (K). ESP\'nin yapacağını sen yapıyorsun: K inmeli.',
+  mode:'V', red:'G20', black:GND, jump:['H1','I1'], type:'v', min:-0.1, max:1.4, typ:0.8, u:'V', flow:['txJ2','tx','k'],
+  checks:[['I7 iniyor ama K inmiyor: TX köprüsü I7 → I10 → H10.','tx'],['Pin 4 → GND testi geçtiyse sorun köprüde.','tx']]},
+ {g:'Sinyal', t:'Tam zincir: LV3 → GND iken LV2', do:'Jumper I1–H1 arasında. Kırmızı prob F1 (J2 RX). Sinyal entegreden geçip RX kanalından geri dönmeli.',
+  mode:'V', red:'F1', black:GND, jump:['H1','I1'], type:'v', min:-0.1, max:0.5, typ:0.15, u:'V', flow:['txJ2','tx','k','rx','rxJ2'],
+  checks:[['K iniyor ama F1 inmiyor: RX köprüsü ya da dönüştürücünün 2. kanalı.','rx']]},
+ {g:'Sinyal', t:'Jumper\'ı çek: her şey geri yükselsin', do:'J2\'deki jumper\'ı çıkar. F1 ve I1 ≈3.3 V, K ≈ besleme olmalı.',
+  mode:'V', red:'F1', black:GND, type:'yn', exp:'y', q:'Geri yükseldi mi?', disp:'3,30',
+  checks:[['LOW\'da kalan nokta: pull-up ya da o kanal arızalı.','shifter']]},
+
+ {g:'ESP', t:'TX ve RX tellerini geri tak', do:'Kart başlığı <b>RXD</b> (GPIO44, bizim TX) → J2 <b>I1</b>, başlık <b>TXD</b> (GPIO43, bizim RX) → J2 <b>F1</b>. Yazılar çaprazdır. Kartın <b>UART</b> yazan Type-C\'si boş kalmalı.',
+  type:'yn', exp:'y', q:'Taktın mı?', flow:['espTx','espRx'],
+  checks:[['TXD\'yi I1\'e takarsan ESP çıkışı dönüştürücünün RX çıkışıyla çakışır, K hiç inmez.','espTx'],
+          ['UART Type-C takılıyken FSUSB42 başlığı CH343\'e verir: "K inmiyor" çıkar.','esp']]},
+];
+
+// ---- Durum ----
+const KEY = 'kline-plaket-test-v1';
+let st = {v:{}, i:0, view:'bot'};
+try { st = Object.assign(st, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const vsIdx = S.findIndex(s => s.vs);
+const vs = () => { const v = parseFloat(String(st.v[vsIdx] ?? '').replace(',', '.')); return isFinite(v) && v > 0 ? v : 12.4; };
+const L = x => typeof x === 'function' ? x(vs()) : x;
+const fmt = (x, d = 2) => x.toFixed(d).replace('.', ',');
+
+function result(i) {
+ const s = S[i], v = st.v[i];
+ if (v === undefined || v === '') return null;
+ if (s.type === 'yn') return v === s.exp;
+ const n = num(s, v);
+ return isFinite(n) ? n >= L(s.min) && n <= L(s.max) : null;
+}
+// Ekranda mV (diyot) ya da kΩ gösteren multimetreler için birim düzeltme
+function num(s, v) {
+ const n = parseFloat(String(v).replace(',', '.'));
+ if (s.scale === 'm' && n > 5) return n / 1000;
+ if (s.scale === 'k' && n > 0 && n < 5) return n * 1000;
+ return n;
+}
+function dispVal(s) {
+ if (s.disp) return s.disp;
+ if (s.type !== 'v') return '';
+ const t = L(s.typ);
+ return s.u === 'Ω' ? String(Math.round(t)) : fmt(t);
+}
+function expText(s) {
+ if (s.type === 'yn') return s.mode === 'bip' ? (s.exp === 'y' ? 'bip sesi' : 'ses yok · OL') : '';
+ const u = s.u, d = u === 'Ω' ? 0 : 2;
+ return `${fmt(L(s.min), d)} … ${fmt(L(s.max), d)} ${u}`;
+}
+
+// ---- Çizim katmanı ----
+let svg;
+const NS = 'http://www.w3.org/2000/svg';
+const fx = document.createElementNS(NS, 'g');
+const meterG = document.createElementNS(NS, 'g');
+// Hat yolu: delik listesi ya da üst/alt yüze göre ayrı tanım
+function wPath(n) {
+ let w = W[n];
+ if (!Array.isArray(w)) w = MIR ? w.bot : w.top;
+ if (typeof w === 'string') return w;
+ let last;
+ return w.map((h, k) => {
+  // '>' : son delikten plaketin dış kenarına (kabloların çıktığı yön)
+  const p = h === '>' ? [last[0] > 380 ? 682 : 78, last[1]] : P(h);
+  last = p;
+  return (k ? 'L' : 'M') + p[0] + ' ' + p[1];
+ }).join('');
+}
+function setView(v) {
+ st.view = v; MIR = v === 'bot';
+ $('pbTop').style.display = MIR ? 'none' : '';
+ $('pbBot').style.display = MIR ? '' : 'none';
+ svg = $(MIR ? 'pbBot' : 'pbTop');
+ svg.append(fx, meterG);
+ $('vBot').classList.toggle('on', MIR); $('vTop').classList.toggle('on', !MIR);
+}
+
+meterG.innerHTML = `
+ <rect x="${MM.x}" y="${MM.y}" width="230" height="330" rx="22" fill="#f2b705" stroke="#6b5100" stroke-width="2"/>
+ <rect x="${MM.x + 12}" y="${MM.y + 12}" width="206" height="306" rx="14" fill="#2a2c30"/>
+ <rect x="${MM.x + 26}" y="${MM.y + 26}" width="178" height="82" rx="6" fill="#b9c8a6" stroke="#111" stroke-width="2"/>
+ <text id="lcd" x="${MM.x + 194}" y="${MM.y + 88}" text-anchor="end" style="font:700 44px var(--mono);fill:#1d2a12">----</text>
+ <text id="lcdu" x="${MM.x + 36}" y="${MM.y + 48}" style="font:700 15px var(--mono);fill:#1d2a12"></text>
+ <g id="dial" transform="translate(${MM.x + 115} ${MM.y + 190})">
+  <circle r="54" fill="#1b1c1f" stroke="#555" stroke-width="2"/>
+  <circle r="40" fill="#3a3c41"/>
+  <rect id="knob" x="-6" y="-50" width="12" height="44" rx="5" fill="#f2b705" style="transition:transform .5s"/>
+ </g>
+ <g style="font:700 13px var(--mono);fill:#e9e9e9" text-anchor="middle">
+  <text x="${MM.x + 50}" y="${MM.y + 140}">Ω</text>
+  <text x="${MM.x + 92}" y="${MM.y + 128}">▷|</text>
+  <text x="${MM.x + 138}" y="${MM.y + 128}">♪</text>
+  <text x="${MM.x + 180}" y="${MM.y + 140}">V⎓</text>
+ </g>
+ <circle cx="${JACK.black[0]}" cy="${JACK.black[1]}" r="11" fill="#111" stroke="#777" stroke-width="2"/>
+ <circle cx="${JACK.red[0]}" cy="${JACK.red[1]}" r="11" fill="#b01818" stroke="#777" stroke-width="2"/>
+ <text x="${JACK.black[0]}" y="${JACK.black[1] - 18}" text-anchor="middle" style="font:700 11px var(--mono);fill:#ddd">COM</text>
+ <text x="${JACK.red[0]}" y="${JACK.red[1] - 18}" text-anchor="middle" style="font:700 11px var(--mono);fill:#ddd">VΩ</text>
+ <path id="cab-black" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round"/>
+ <path id="cab-red" fill="none" stroke="#c81e1e" stroke-width="5" stroke-linecap="round"/>
+ <g id="tip-black"></g><g id="tip-red"></g>`;
+const KNOB = {'Ω':-62, 'diyot':-22, 'bip':22, 'V':62};
+
+// Prob: ucu delikte, gövdesi sağ üste doğru
+function probe(color, p) {
+ const [x, y] = p, c = color === 'red' ? '#c81e1e' : '#151515';
+ document.getElementById('tip-' + color).innerHTML = `
+  <line x1="${x}" y1="${y}" x2="${x + 14}" y2="${y - 20}" stroke="#c9ccd1" stroke-width="3" stroke-linecap="round"/>
+  <line x1="${x + 14}" y1="${y - 20}" x2="${x + 40}" y2="${y - 58}" stroke="${c}" stroke-width="11" stroke-linecap="round"/>
+  <circle cx="${x}" cy="${y}" r="3.5" fill="${c}" stroke="#fff" stroke-width="1.5"/>`;
+ const [jx, jy] = JACK[color], ex = x + 40, ey = y - 58;
+ const my = Math.max(jy, ey) + 60;
+ document.getElementById('cab-' + color).setAttribute('d', `M${jx} ${jy} C${jx} ${my} ${ex + 60} ${ey - 40} ${ex} ${ey}`);
+}
+
+let cur = {red:PARK.red, black:PARK.black}, anim = 0, timers = [];
+const FAST = location.search.includes('static');   // önizleme için animasyonsuz
+function moveProbes(to, ms) {
+ const from = {red:cur.red, black:cur.black}, t0 = performance.now(), id = ++anim;
+ const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+ return new Promise(done => {
+  const step = now => {
+   if (id !== anim) return;
+   const k = ms ? ease(Math.min(1, Math.max(0, (now - t0) / ms))) : 1;
+   for (const c of ['red', 'black']) {
+    const p = [from[c][0] + (to[c][0] - from[c][0]) * k, from[c][1] + (to[c][1] - from[c][1]) * k];
+    cur[c] = p; probe(c, p);
+   }
+   k < 1 ? requestAnimationFrame(step) : done();
+  };
+  requestAnimationFrame(step);
+ });
+}
+
+function lcd(text, unit) {
+ document.getElementById('lcd').textContent = text;
+ document.getElementById('lcdu').textContent = unit || '';
+}
+function countTo(s) {
+ const target = dispVal(s);
+ const n = parseFloat(String(target).replace(',', '.'));
+ if (!isFinite(n)) { lcd(target, s.mode === 'bip' ? '♪' : ''); return; }
+ const d = s.u === 'Ω' ? 0 : 2, t0 = performance.now(), id = anim;
+ const unit = s.u === 'Ω' ? 'Ω' : s.mode === 'diyot' ? '▷| V' : 'V DC';
+ const tick = now => {
+  if (id !== anim) return;
+  const k = FAST ? 1 : Math.min(1, Math.max(0, (now - t0) / 650));
+  lcd(fmt(n * k * (1 + (Math.random() - .5) * .08), d), unit);
+  k < 1 ? requestAnimationFrame(tick) : lcd(fmt(n, d), unit);
+ };
+ requestAnimationFrame(tick);
+}
+
+function ring(p, color, label, below) {
+ const [x, y] = p;
+ return `<circle class="ring" cx="${x}" cy="${y}" r="10" stroke="${color}"/>
+  <circle cx="${x}" cy="${y}" r="9" fill="none" stroke="${color}" stroke-width="3"/>
+  ${label ? `<text class="callout" x="${x}" y="${below ? y + 30 : y - 18}" text-anchor="middle" style="fill:${color}">${label}</text>` : ''}`;
+}
+function hlHtml(what) {
+ if (W[what]) return `<path class="hlw" d="${wPath(what)}"/>`;
+ if (B[what]) { const [x, y, w, h] = box(what); return `<rect class="hlb" x="${x - 6}" y="${y - 6}" width="${w + 12}" height="${h + 12}" rx="8"/>`; }
+ return '';
+}
+
+let selCheck = -1;
+function drawFx(s) {
+ let h = '';
+ // 1. adımda çıkarılan ESP TX/RX telleri son adıma kadar soluk
+ if (st.i > 0 && st.i < S.length - 1) h += ['espRx', 'espTx'].map(w => `<path d="${wPath(w)}" fill="none" stroke="#e6e7e2" stroke-opacity=".85" stroke-width="12" stroke-linecap="round"/>`).join('');
+ for (const f of s.flow || []) h += `<path class="flow" d="${wPath(f)}"/>`;
+ for (const w of s.hl || []) h += hlHtml(w);
+ if (selCheck >= 0 && s.checks[selCheck]) h += hlHtml(s.checks[selCheck][1]);
+ for (const m of s.xmark || []) {
+  const [x, y] = P(m);
+  h += `<path class="xmark" d="M${x - 12} ${y - 12}L${x + 12} ${y + 12}M${x + 12} ${y - 12}L${x - 12} ${y + 12}"/>`;
+ }
+ if (s.xmark) {
+  const [x, y] = P(s.xmark[0]);
+  h += `<text class="callout" x="${x + 12}" y="${y + 36}" text-anchor="middle" style="fill:#d62828">çıkar</text>`;
+ }
+ if (s.jump) {
+  const [a, b] = s.jump.map(P), mx = (a[0] + b[0]) / 2 + 40, my = (a[1] + b[1]) / 2;
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) * 1.3 + 40;
+  h += `<path class="jump" style="--len:${len}" d="M${a[0]} ${a[1]} Q${mx} ${my} ${b[0]} ${b[1]}"/>
+   <rect x="${a[0] - 5}" y="${a[1] - 5}" width="10" height="10" rx="2" fill="#ff8a00"/>
+   <rect x="${b[0] - 5}" y="${b[1] - 5}" width="10" height="10" rx="2" fill="#ff8a00"/>`;
+ }
+ if (s.red) h += ring(P(s.red), '#d62828');
+ if (s.black && s.black !== GND) h += ring(P(s.black), '#151515');
+ // Alt açıklama: hangi uç nereye
+ const leg = [];
+ if (s.red) leg.push(['#d62828', 'Kırmızı prob', where(s.red)]);
+ if (s.black) leg.push(['#151515', 'Siyah prob', where(s.black)]);
+ if (s.jump) leg.push(['#ff8a00', 'Atlama kablosu', `${where(s.jump[0])} → ${where(s.jump[1])}`]);
+ h += leg.map(([c, a, b], k) => `<g transform="translate(${MIR ? -80 : -290} ${482 + k * 18})">
+  <rect x="0" y="-11" width="22" height="12" rx="3" fill="${c}"/>
+  <text x="30" y="0" style="font:700 13px var(--mono);fill:#23262b">${a}: <tspan style="font-weight:500">${b}</tspan></text></g>`).join('');
+ fx.innerHTML = h;
+}
+
+function play() {
+ const s = S[st.i];
+ timers.forEach(clearTimeout); timers = [];
+ document.getElementById('knob').style.transform = `rotate(${KNOB[s.mode] ?? 0}deg)`;
+ lcd(s.mode ? '----' : 'OFF', '');
+ drawFx(s);
+ const to = {red:s.red ? P(s.red) : PARK.red, black:s.black ? P(s.black) : PARK.black};
+ timers.push(setTimeout(() => moveProbes(to, FAST ? 0 : 900).then(() => { if (s.mode && (s.red || s.disp)) countTo(s); }), s.jump ? 700 : 150));
+}
+
+// ---- Panel ----
+function show(animate = true) {
+ const s = S[st.i];
+ selCheck = -1;
+ $('grp').textContent = s.g;
+ $('cnt').textContent = `${st.i + 1} / ${S.length}`;
+ $('ttl').textContent = s.t;
+ $('do').innerHTML = s.do;
+ const disp = dispVal(s);
+ $('ev').textContent = s.type === 'v' ? expText(s) : (expText(s) || '—');
+ $('em').textContent = s.mode ? `mod: ${s.mode === 'V' ? 'V⎓' : s.mode}` + (s.type === 'v' ? ` · tipik ${disp} ${s.u}` : '') : '';
+ if (s.type === 'yn') {
+  $('alab').textContent = s.q;
+  $('answer').innerHTML = `<button data-v="y">Evet</button><button data-v="n">Hayır</button>`;
+  $('answer').querySelectorAll('button').forEach(b => {
+   b.classList.toggle('on', st.v[st.i] === b.dataset.v);
+   b.onclick = () => { st.v[st.i] = b.dataset.v; save(); panelState(); };
+  });
+ } else {
+  $('alab').textContent = 'Ölçtüğün değer';
+  $('answer').innerHTML = `<input id="inp" inputmode="decimal" placeholder="—" value="${st.v[st.i] ?? ''}"><span class="u">${s.u}</span>`;
+  $('inp').oninput = e => { st.v[st.i] = e.target.value.trim(); save(); panelState(); };
+  $('inp').onkeydown = e => { if (e.key === 'Enter') go(1); };
+ }
+ $('prev').disabled = st.i === 0;
+ $('next').textContent = st.i === S.length - 1 ? 'Sonuç' : 'İleri →';
+ panelState();
+ if (animate) play();
+}
+
+function panelState() {
+ const s = S[st.i], r = result(st.i);
+ if (s.type === 'yn') $('answer').querySelectorAll('button').forEach(b => b.classList.toggle('on', st.v[st.i] === b.dataset.v));
+ $('res').className = 'res' + (r === true ? ' ok' : r === false ? ' bad' : '');
+ const raw = parseFloat(String(st.v[st.i] ?? '').replace(',', '.'));
+ const conv = s.type === 'v' && r !== null && num(s, st.v[st.i]) !== raw ? ` (${st.v[st.i]} → ${fmt(num(s, st.v[st.i]), s.u === 'Ω' ? 0 : 3)} ${s.u})` : '';
+ $('res').textContent = (r === true ? 'GEÇTİ' : r === false ? 'HATALI · aşağıdakileri sırayla kontrol et' : '') + conv;
+ const c = $('checks');
+ c.className = 'checks' + (r === false ? ' alert' : '');
+ c.innerHTML = s.checks.length ? `<div class="lbl">${r === false ? 'Kontrol et (tıkla, çizimde gösterir)' : 'Değer tutmazsa kontrol et'}</div>` +
+  s.checks.map(([t], k) => `<button class="chk${k === selCheck ? ' sel' : ''}" data-k="${k}"><i>${k + 1}</i><span>${t}</span></button>`).join('') : '';
+ c.querySelectorAll('.chk').forEach(b => b.onclick = () => {
+  selCheck = selCheck === +b.dataset.k ? -1 : +b.dataset.k;
+  drawFx(S[st.i]); panelState();
+ });
+ strip(); final();
+}
+
+function strip() {
+ let h = '', g = '', open = false;
+ S.forEach((s, i) => {
+  if (s.g !== g) { if (open) h += '</span>'; g = s.g; h += `<span class="grp"><b>${g}</b>`; open = true; }
+  const r = result(i);
+  h += `<button data-i="${i}" title="${s.t}" class="${i === st.i ? 'cur ' : ''}${r === true ? 'ok' : r === false ? 'bad' : ''}">${i + 1}</button>`;
+ });
+ $('strip').innerHTML = h + '</span>';
+ $('strip').querySelectorAll('button').forEach(b => b.onclick = () => { st.i = +b.dataset.i; save(); show(); });
+}
+
+// Sonuç: grup bazında
+function final() {
+ const el = $('final');
+ if (st.i !== S.length - 1) { el.className = 'final'; return; }
+ const groups = [...new Set(S.map(s => s.g))];
+ const tag = g => {
+  const r = S.map((s, i) => [s, result(i)]).filter(([s]) => s.g === g).map(([, r]) => r);
+  return r.includes(false) ? '<span class="tag bad">HATA</span>' : r.every(x => x === true) ? '<span class="tag ok">TAMAM</span>' : '<span class="tag">eksik</span>';
+ };
+ const firstBad = S.findIndex((s, i) => result(i) === false);
+ el.className = 'final show';
+ el.innerHTML = `<div class="lbl">Özet</div>` + groups.map(g => `<div class="vrow"><span>${g}</span>${tag(g)}</div>`).join('') +
+  (firstBad >= 0 ? `<p style="margin:10px 0 0">İlk hata: <b>${firstBad + 1}. ${S[firstBad].t}</b>. Önce onu düzelt.</p>`
+   : '<p style="margin:10px 0 0">Hata yoksa plaket, L9637D ve dönüştürücü sağlam: kalan şüpheli Waveshare tarafı (UART Type-C, RXD/TXD yönü) ve J2 kablosu.</p>');
+}
+
+function go(d) {
+ const n = Math.max(0, Math.min(S.length - 1, st.i + d));
+ if (n === st.i) return;
+ st.i = n; save(); show();
+}
+
+$('prev').onclick = () => go(-1);
+$('next').onclick = () => go(1);
+$('vBot').onclick = () => { setView('bot'); save(); cur = {red:PARK.red, black:PARK.black}; play(); };
+$('vTop').onclick = () => { setView('top'); save(); cur = {red:PARK.red, black:PARK.black}; play(); };
+$('replay').onclick = () => { cur = {red:PARK.red, black:PARK.black}; play(); };
+$('reset').onclick = () => { if (confirm('Tüm ölçümler silinsin mi?')) { st = {v:{}, i:0, view:st.view}; save(); show(); } };
+$('copy').onclick = async () => {
+ const lines = ['Plaket ölçüm testi · ' + new Date().toLocaleString('tr-TR')];
+ S.forEach((s, i) => {
+  const r = result(i);
+  if (r === null) return;
+  const v = s.type === 'yn' ? (st.v[i] === 'y' ? 'evet' : 'hayır') : `${st.v[i]} ${s.u}`;
+  lines.push(`${r ? 'OK  ' : 'HATA'} ${i + 1}. ${s.t}: ${v}${s.type === 'v' ? ` (beklenen ${expText(s)})` : ''}`);
+ });
+ const txt = lines.join('\n');
+ try { await navigator.clipboard.writeText(txt); alert('Kopyalandı'); } catch (e) { prompt('Kopyala:', txt); }
+};
+document.addEventListener('keydown', e => {
+ if (e.target.tagName === 'INPUT') return;
+ if (e.key === 'ArrowRight') go(1);
+ if (e.key === 'ArrowLeft') go(-1);
+});
+
+setView(st.view === 'top' ? 'top' : 'bot');
+probe('red', PARK.red); probe('black', PARK.black);
+const hashStep = parseInt(location.hash.slice(1));
+if (hashStep >= 1 && hashStep <= S.length) st.i = hashStep - 1;
+show();
+</script>
+</body>
+</html>

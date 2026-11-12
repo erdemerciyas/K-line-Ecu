@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Breadboard Ölçüm Animasyonu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+:root{
+ --bg:#f3f4f1; --fg:#1d2024; --muted:#5d636b; --line:#d5d8d2; --panel:#ffffff; --soft:#eceee9;
+ --accent:#b9770e; --ok:#2e8a4a; --warn:#b4472a;
+ --display:"Barlow Condensed","Arial Narrow",sans-serif;
+ --body:"Barlow",system-ui,sans-serif;
+ --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; color-scheme:dark}}
+:root[data-theme="dark"]{
+ --bg:#15171a; --fg:#e7e9ec; --muted:#9aa1ab; --line:#2c3036; --panel:#1d2024; --soft:#24282d;
+ --accent:#e7a33a; --ok:#58c07a; --warn:#e2785c; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:400 15px/1.5 var(--body);margin:0}
+.wrap{max-width:1560px;margin:0 auto;padding:18px 16px 50px;display:grid;gap:14px}
+header{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:10px}
+.eyebrow{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font:700 clamp(26px,4vw,38px)/1.05 var(--display);margin:2px 0 0}
+code{font-family:var(--mono);font-size:.9em}
+
+/* Adım şeridi */
+.strip{display:flex;flex-wrap:wrap;gap:4px 14px}
+.strip .grp{display:flex;gap:3px;align-items:center}
+.strip .grp b{font:600 11px var(--mono);color:var(--muted);margin-right:4px;text-transform:uppercase;letter-spacing:.05em}
+.strip button{width:26px;height:26px;padding:0;border-radius:50%;font:600 11px var(--mono);border:1.5px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+.strip button.cur{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.strip button.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.strip button.bad{background:var(--warn);border-color:var(--warn);color:#fff}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:14px;align-items:start}
+.fig{background:#e4e7e1;border:1px solid var(--line);border-radius:10px;overflow:auto}
+.fig svg{display:block;width:100%;min-width:860px;height:auto}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:12px;position:sticky;top:10px;max-height:calc(100vh - 20px);overflow:auto}
+.meta{display:flex;justify-content:space-between;font:500 12px var(--mono);color:var(--muted)}
+.ttl{font:700 26px/1.1 var(--display);margin:0}
+.do{margin:0}
+.lbl{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.expect{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;background:var(--soft);border-radius:8px;padding:8px 12px}
+.expect .v{font:700 20px var(--mono)}
+.expect .mode{font:600 12px var(--mono);color:var(--accent)}
+.answer{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.answer input{width:120px;font:700 22px var(--mono);padding:6px 10px;border:2px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+.answer input:focus{outline:none;border-color:var(--accent)}
+.answer .u{font:600 18px var(--mono);color:var(--muted)}
+button{font:600 14px var(--body);border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:8px;padding:8px 14px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.res{display:none;border-radius:8px;padding:8px 12px;font:700 16px var(--display);letter-spacing:.03em}
+.res.ok{display:block;background:color-mix(in srgb,var(--ok) 15%,transparent);border:1px solid var(--ok);color:var(--ok)}
+.res.bad{display:block;background:color-mix(in srgb,var(--warn) 15%,transparent);border:1px solid var(--warn);color:var(--warn)}
+.checks{display:grid;gap:6px}
+.checks.alert .lbl{color:var(--warn)}
+.chk{display:flex;gap:8px;align-items:flex-start;text-align:left;font:400 14px/1.4 var(--body);padding:8px 10px;border-radius:8px;background:var(--soft);border:1px solid transparent;width:100%}
+.chk:hover,.chk.sel{border-color:var(--accent)}
+.chk i{font-style:normal;font:700 12px var(--mono);color:var(--accent);flex:none;margin-top:1px}
+.nav{display:flex;gap:8px;justify-content:space-between}
+.tools{display:flex;gap:8px;flex-wrap:wrap}
+.final{display:none}
+.final.show{display:block}
+.vrow{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid var(--line);font-size:14px}
+.tag{font:600 12px var(--mono);padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.tag.ok{color:var(--ok);border-color:var(--ok)}
+.tag.bad{color:var(--warn);border-color:var(--warn)}
+
+/* Breadboard çizim sınıfları (montaj rehberinden) */
+.bbn{paint-order:stroke;stroke:#f6f5f0;stroke-width:4px;stroke-linejoin:round}
+.bbr{font:700 15px var(--mono)}
+.bbs{font:500 9.5px var(--mono);fill:#23262b}
+.blk.c{stroke:#2b2d30}.blk.o{stroke:#000}
+.blu.c{stroke:#2f6fd6}.blu.o{stroke:#132f63}
+.grn.c{stroke:#2e9e4f}.grn.o{stroke:#124a22}
+.org.c{stroke:#f07f1a}.org.o{stroke:#7f3f00}
+.pur.c{stroke:#8e5bd1}.pur.o{stroke:#3d2366}
+.red.c{stroke:#d62828}.red.o{stroke:#6e0f0f}
+.yel.c{stroke:#f2c230}.yel.o{stroke:#7d5f00}
+svg .c{fill:none;stroke-width:5.5;stroke-linecap:round;stroke-linejoin:round}
+svg .o{fill:none;stroke-width:8;stroke-linecap:round;stroke-linejoin:round}
+svg .h{fill:none;stroke:#fff;stroke-opacity:.38;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+.lead{stroke:#a9aeb5;stroke-width:3;stroke-linecap:round}
+.pbb{font:600 12.5px var(--display);fill:#23262b;paint-order:stroke;stroke:#f6f5f0;stroke-width:4px;stroke-linejoin:round}
+.pbs{font:500 10.5px var(--body);fill:#fff;paint-order:stroke;stroke:#3a2410;stroke-width:3px;stroke-linejoin:round}
+.pg{font:500 9.5px var(--mono);fill:#5d636b}
+.pin{font:500 11.5px var(--mono);fill:#23262b}
+.silk{font:500 10px var(--mono);fill:#f2f5f8}
+
+/* Animasyon katmanı */
+.flow{fill:none;stroke:#ffb020;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:10 9;animation:march .7s linear infinite;filter:drop-shadow(0 0 4px #ffb020)}
+@keyframes march{to{stroke-dashoffset:-19}}
+.hlw{fill:none;stroke:#ff3d7f;stroke-width:14;stroke-opacity:.55;stroke-linecap:round;stroke-linejoin:round;animation:blink 1s ease-in-out infinite}
+.hlb{fill:#ff3d7f;fill-opacity:.12;stroke:#ff3d7f;stroke-width:3;stroke-dasharray:8 5;animation:blink 1s ease-in-out infinite}
+@keyframes blink{50%{opacity:.35}}
+.ring{fill:none;stroke-width:3;transform-box:fill-box;transform-origin:center;animation:ring 1.3s ease-out infinite}
+@keyframes ring{0%{transform:scale(.6);opacity:1}100%{transform:scale(2.2);opacity:0}}
+.jump{fill:none;stroke:#ff8a00;stroke-width:6;stroke-linecap:round;stroke-dasharray:var(--len);stroke-dashoffset:var(--len);animation:draw .7s ease-out .2s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.callout{font:700 13px var(--mono);paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
+.xmark{stroke:#d62828;stroke-width:5;stroke-linecap:round}
+
+@media (max-width:1100px){
+ .main{grid-template-columns:1fr}
+ .panel{position:static;max-height:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <header>
+  <div>
+   <div class="eyebrow">K-Line OBD · breadboard ölçüm rehberi</div>
+   <h1>Adım Adım Ölçüm Animasyonu</h1>
+  </div>
+  <div class="tools">
+   <button id="replay">↻ Animasyonu tekrar oynat</button>
+   <button id="copy">Sonuçları kopyala</button>
+   <button id="reset">Sıfırla</button>
+  </div>
+ </header>
+
+ <div class="strip" id="strip"></div>
+
+ <div class="main">
+  <div class="fig">
+   <svg id="bb" viewBox="30 26 1250 620" role="img" aria-label="Breadboard ölçüm animasyonu"><defs>  <linearGradient id="gBlk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b3d40"/><stop offset="1" stop-color="#0f1011"/></linearGradient>
+  <linearGradient id="gPlug" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34363a"/><stop offset=".5" stop-color="#1b1c1e"/><stop offset="1" stop-color="#0b0b0c"/></linearGradient>
+  <linearGradient id="gCyl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0d0d0e"/><stop offset=".45" stop-color="#4a4c50"/><stop offset="1" stop-color="#0d0d0e"/></linearGradient>
+  <linearGradient id="gRes" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#b39457"/><stop offset=".45" stop-color="#efdcb0"/><stop offset="1" stop-color="#b39457"/></linearGradient>
+  <linearGradient id="gPcb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a6cb5"/><stop offset="1" stop-color="#1a4a85"/></linearGradient>
+  <linearGradient id="gPcbG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22764a"/><stop offset="1" stop-color="#155232"/></linearGradient>
+  <linearGradient id="gGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6da86"/><stop offset="1" stop-color="#b08226"/></linearGradient>
+  <radialGradient id="gCap" cx=".35" cy=".35" r=".7"><stop offset="0" stop-color="#f7c86a"/><stop offset="1" stop-color="#c9781f"/></radialGradient>
+  <radialGradient id="gScr" cx=".5" cy=".4" r=".7"><stop offset="0" stop-color="#1a2230"/><stop offset="1" stop-color="#05070a"/></radialGradient>
+  <pattern id="bbHole" x="198" y="184" width="24" height="24" patternUnits="userSpaceOnUse"><rect x="8.5" y="8.5" width="7" height="7" rx="1.5" fill="#3b3d40"/></pattern></defs><rect x="168" y="110" width="1572" height="440" rx="10" fill="#f6f5f0" stroke="#c4c3bb" stroke-width="2"/><rect x="168" y="306" width="1572" height="44" fill="#e3e2db"/><path d="M168 306H1740M168 350H1740" stroke="#cfcec6"/><path d="M190 117H938M970 117H1706" stroke="#2f6fd6" stroke-width="2"/><path d="M190 167H938M970 167H1706" stroke="#d62828" stroke-width="2"/><path d="M190 489H938M970 489H1706" stroke="#d62828" stroke-width="2"/><path d="M190 539H938M970 539H1706" stroke="#2f6fd6" stroke-width="2"/><text x="182" y="135" text-anchor="middle" class="bbr" fill="#2f6fd6">−</text><text x="1714" y="135" text-anchor="middle" class="bbr" fill="#2f6fd6">−</text><text x="182" y="159" text-anchor="middle" class="bbr" fill="#d62828">+</text><text x="1714" y="159" text-anchor="middle" class="bbr" fill="#d62828">+</text><text x="182" y="507" text-anchor="middle" class="bbr" fill="#d62828">+</text><text x="1714" y="507" text-anchor="middle" class="bbr" fill="#d62828">+</text><text x="182" y="531" text-anchor="middle" class="bbr" fill="#2f6fd6">−</text><text x="1714" y="531" text-anchor="middle" class="bbr" fill="#2f6fd6">−</text><rect x="945" y="104" width="18" height="16" rx="2" fill="#fbfaf6" stroke="#b9b8b0"/><rect x="945" y="540" width="18" height="16" rx="2" fill="#fbfaf6" stroke="#b9b8b0"/><path d="M954 116V168M954 488V544" stroke="#b4472a" stroke-width="2" stroke-dasharray="4 3"/><text x="954" y="580" text-anchor="middle" class="pbb" style="fill:#b4472a">raylar burada ayrık (32. sütun)</text><rect x="230.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="254.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="278.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="302.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="326.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="374.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="398.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="422.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="446.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="470.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="518.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="542.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="566.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="590.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="614.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="662.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="686.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="710.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="734.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="758.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="806.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="830.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="854.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="878.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="902.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="974.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="998.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1022.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1046.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1094.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1118.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1142.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1166.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1190.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1238.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1262.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1286.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1310.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1334.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1382.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1406.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1430.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1454.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1478.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1526.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1550.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1574.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1598.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1622.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1670.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1694.5" y="126.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="230.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="254.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="278.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="302.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="326.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="374.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="398.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="422.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="446.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="470.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="518.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="542.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="566.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="590.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="614.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="662.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="686.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="710.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="734.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="758.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="806.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="830.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="854.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="878.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="902.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="974.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="998.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1022.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1046.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1094.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1118.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1142.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1166.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1190.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1238.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1262.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1286.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1310.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1334.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1382.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1406.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1430.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1454.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1478.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1526.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1550.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1574.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1598.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1622.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1670.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1694.5" y="150.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="230.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="254.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="278.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="302.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="326.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="374.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="398.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="422.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="446.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="470.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="518.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="542.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="566.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="590.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="614.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="662.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="686.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="710.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="734.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="758.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="806.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="830.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="854.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="878.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="902.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="974.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="998.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1022.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1046.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1094.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1118.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1142.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1166.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1190.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1238.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1262.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1286.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1310.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1334.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1382.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1406.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1430.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1454.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1478.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1526.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1550.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1574.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1598.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1622.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1670.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1694.5" y="498.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="230.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="254.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="278.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="302.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="326.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="374.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="398.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="422.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="446.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="470.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="518.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="542.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="566.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="590.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="614.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="662.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="686.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="710.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="734.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="758.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="806.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="830.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="854.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="878.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="902.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="974.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="998.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1022.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1046.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1094.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1118.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1142.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1166.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1190.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1238.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1262.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1286.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1310.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1334.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1382.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1406.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1430.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1454.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1478.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1526.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1550.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1574.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1598.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1622.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1670.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="1694.5" y="522.5" width="7" height="7" rx="1.5" fill="#3b3d40"/><rect x="198" y="184" width="1512" height="120" fill="url(#bbHole)"/><rect x="198" y="352" width="1512" height="120" fill="url(#bbHole)"/><text x="160" y="134" text-anchor="end" class="pin">GND</text><text x="160" y="158" text-anchor="end" class="pin">+12V · D1 sonrası</text><text x="160" y="506" text-anchor="end" class="pin">+5V · 78L05</text><text x="160" y="530" text-anchor="end" class="pin">GND</text><polyline points="234,130 234,526" class="blk o"/><polyline points="234,130 234,526" class="blk c"/><polyline points="234,130 234,526" class="h"/><rect x="230" y="126" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="230" y="522" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="522,196 522,154" class="red o"/><polyline points="522,196 522,154" class="red c"/><polyline points="522,196 522,154" class="h"/><rect x="518" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="518" y="150" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="570,196 570,130" class="blk o"/><polyline points="570,196 570,130" class="blk c"/><polyline points="570,196 570,130" class="h"/><rect x="566" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="566" y="126" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="738,196 738,154" class="red o"/><polyline points="738,196 738,154" class="red c"/><polyline points="738,196 738,154" class="h"/><rect x="734" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="734" y="150" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="738,292 738,364" class="red o"/><polyline points="738,292 738,364" class="red c"/><polyline points="738,292 738,364" class="h"/><rect x="734" y="288" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="734" y="360" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="546,196 618,268" class="yel o"/><polyline points="546,196 618,268" class="yel c"/><polyline points="546,196 618,268" class="h"/><rect x="542" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="614" y="264" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="306,460 306,526" class="blk o"/><polyline points="306,460 306,526" class="blk c"/><polyline points="306,460 306,526" class="h"/><rect x="302" y="456" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="302" y="522" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="330,460 330,502" class="org o"/><polyline points="330,460 330,502" class="org c"/><polyline points="330,460 330,502" class="h"/><rect x="326" y="456" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="326" y="498" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="546,460 546,502" class="org o"/><polyline points="546,460 546,502" class="org c"/><polyline points="546,460 546,502" class="h"/><rect x="542" y="456" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="542" y="498" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="690,460 690,502" class="org o"/><polyline points="690,460 690,502" class="org c"/><polyline points="690,460 690,502" class="h"/><rect x="686" y="456" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="686" y="498" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="714,460 714,526" class="blk o"/><polyline points="714,460 714,526" class="blk c"/><polyline points="714,460 714,526" class="h"/><rect x="710" y="456" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="710" y="522" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="354,412 366,402 486,402 498,412" class="grn o"/><polyline points="354,412 366,402 486,402 498,412" class="grn c"/><polyline points="354,412 366,402 486,402 498,412" class="h"/><rect x="350" y="408" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="494" y="408" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="378,436 390,426 558,426 570,436" class="blu o"/><polyline points="378,436 390,426 558,426 570,436" class="blu c"/><polyline points="378,436 390,426 558,426 570,436" class="h"/><rect x="374" y="432" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="566" y="432" width="8" height="8" rx="2" fill="#1b1d20"/><!-- Waveshare ESP32-S3-Touch-LCD-2.1 breadboard dışında: UART başlığından 4 tel a5–a8'e iner (GND, 3V3, TXD, RXD) --><g><rect x="290" y="36" width="104" height="34" rx="6" fill="#202326" stroke="#000" stroke-width="1.5"/><rect x="294" y="66" width="96" height="20" rx="2" fill="#111" stroke="#000"/><g fill="url(#gGold)" stroke="#7a5a12"><rect x="301" y="71" width="10" height="10" rx="2"/><rect x="325" y="71" width="10" height="10" rx="2"/><rect x="349" y="71" width="10" height="10" rx="2"/><rect x="373" y="71" width="10" height="10" rx="2"/></g><g class="silk" style="font-size:7.5px" text-anchor="middle"><text x="306" y="62">GND</text><text x="330" y="62">3V3</text><text x="354" y="62" style="fill:#ffd84d;font-weight:700">TXD</text><text x="378" y="62" style="fill:#ffd84d;font-weight:700">RXD</text></g></g><polyline points="306,76 306,196" class="blk o"/><polyline points="306,76 306,196" class="blk c"/><polyline points="306,76 306,196" class="h"/><polyline points="330,76 330,196" class="pur o"/><polyline points="330,76 330,196" class="pur c"/><polyline points="330,76 330,196" class="h"/><polyline points="354,76 354,196" class="grn o"/><polyline points="354,76 354,196" class="grn c"/><polyline points="354,76 354,196" class="h"/><polyline points="378,76 378,196" class="blu o"/><polyline points="378,76 378,196" class="blu c"/><polyline points="378,76 378,196" class="h"/><g><g class="bbs"></g></g><rect x="302" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="326" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="350" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><rect x="374" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><polyline points="906,130 906,96 1074,96" class="blk o"/><polyline points="906,130 906,96 1074,96" class="blk c"/><polyline points="906,130 906,96 1074,96" class="h"/><rect x="902" y="126" width="8" height="8" rx="2" fill="#1b1d20"/><text x="1082" y="100" class="pin">OBD 5 · GND</text><polyline points="882,130 882,80 1074,80" class="blk o"/><polyline points="882,130 882,80 1074,80" class="blk c"/><polyline points="882,130 882,80 1074,80" class="h"/><rect x="878" y="126" width="8" height="8" rx="2" fill="#1b1d20"/><text x="1082" y="84" class="pin">OBD 4 · GND</text><polyline points="834,196 834,64 1074,64" class="red o"/><polyline points="834,196 834,64 1074,64" class="red c"/><polyline points="834,196 834,64 1074,64" class="h"/><rect x="830" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><text x="1082" y="68" class="pin">OBD 16 · +12V</text><polyline points="618,196 618,48 1074,48" class="yel o"/><polyline points="618,196 618,48 1074,48" class="yel c"/><polyline points="618,196 618,48 1074,48" class="h"/><rect x="614" y="192" width="8" height="8" rx="2" fill="#1b1d20"/><text x="1082" y="52" class="pin">OBD 7 · K</text><rect x="242" y="254" width="152" height="148" rx="4" fill="url(#gPcb)" stroke="#0f2f57"/><circle cx="258" cy="268" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="258" cy="388" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="258" y="288" text-anchor="middle" class="silk">LV4</text><text x="258" y="374" text-anchor="middle" class="silk">HV4</text><circle cx="282" cy="268" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="282" cy="388" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="282" y="288" text-anchor="middle" class="silk">LV3</text><text x="282" y="374" text-anchor="middle" class="silk">HV3</text><circle cx="306" cy="268" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="306" cy="388" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="306" y="288" text-anchor="middle" class="silk">GND</text><text x="306" y="374" text-anchor="middle" class="silk">GND</text><circle cx="330" cy="268" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="330" cy="388" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="330" y="288" text-anchor="middle" class="silk">LV</text><text x="330" y="374" text-anchor="middle" class="silk">HV</text><circle cx="354" cy="268" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="354" cy="388" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="354" y="288" text-anchor="middle" class="silk">LV2</text><text x="354" y="374" text-anchor="middle" class="silk">HV2</text><circle cx="378" cy="268" r="5" fill="url(#gGold)" stroke="#7a5a12"/><circle cx="378" cy="388" r="5" fill="url(#gGold)" stroke="#7a5a12"/><text x="378" y="288" text-anchor="middle" class="silk">LV1</text><text x="378" y="374" text-anchor="middle" class="silk">HV1</text><rect x="264" y="318" width="16" height="12" rx="1.5" fill="url(#gBlk)" stroke="#000"/><rect x="294" y="318" width="16" height="12" rx="1.5" fill="url(#gBlk)" stroke="#000"/><rect x="324" y="318" width="16" height="12" rx="1.5" fill="url(#gBlk)" stroke="#000"/><rect x="354" y="318" width="16" height="12" rx="1.5" fill="url(#gBlk)" stroke="#000"/><text x="318.0" y="348" text-anchor="middle" class="pbs">seviye dönüştürücü</text><rect x="482" y="266" width="104" height="124" rx="3" fill="url(#gPcbG)" stroke="#0c3b22"/><rect x="504.0" y="306.5" width="14" height="7" fill="#c9ccd1"/><rect x="550.0" y="306.5" width="14" height="7" fill="#c9ccd1"/><rect x="504.0" y="318.5" width="14" height="7" fill="#c9ccd1"/><rect x="550.0" y="318.5" width="14" height="7" fill="#c9ccd1"/><rect x="504.0" y="330.5" width="14" height="7" fill="#c9ccd1"/><rect x="550.0" y="330.5" width="14" height="7" fill="#c9ccd1"/><rect x="504.0" y="342.5" width="14" height="7" fill="#c9ccd1"/><rect x="550.0" y="342.5" width="14" height="7" fill="#c9ccd1"/><rect x="516.0" y="304" width="36" height="48" rx="2" fill="url(#gBlk)" stroke="#000"/><rect x="546.0" y="304" width="6" height="48" fill="#5d6067"/><circle cx="541" cy="346" r="2.2" fill="#8d9097"/><circle cx="572" cy="346" r="2.2" fill="#f2f5f8"/><text transform="translate(532.0 328) rotate(-90)" text-anchor="middle" class="silk">9637D</text><circle cx="498" cy="292" r="5" fill="#c4c8ce" stroke="#7d8289"/><circle cx="498" cy="364" r="5" fill="#c4c8ce" stroke="#7d8289"/><text x="498" y="283" text-anchor="middle" class="silk">8</text><text x="498" y="383" text-anchor="middle" class="silk">1</text><text x="498" y="261" text-anchor="middle" class="bbs bbn">LI</text><text x="498" y="402" text-anchor="middle" class="bbs bbn">RX</text><circle cx="522" cy="292" r="5" fill="#c4c8ce" stroke="#7d8289"/><circle cx="522" cy="364" r="5" fill="#c4c8ce" stroke="#7d8289"/><text x="522" y="283" text-anchor="middle" class="silk">7</text><text x="522" y="383" text-anchor="middle" class="silk">2</text><text x="522" y="261" text-anchor="middle" class="bbs bbn">VS</text><text x="522" y="402" text-anchor="middle" class="bbs bbn">LO</text><circle cx="546" cy="292" r="5" fill="#c4c8ce" stroke="#7d8289"/><circle cx="546" cy="364" r="5" fill="#c4c8ce" stroke="#7d8289"/><text x="546" y="283" text-anchor="middle" class="silk">6</text><text x="546" y="383" text-anchor="middle" class="silk">3</text><text x="546" y="261" text-anchor="middle" class="bbs bbn">K</text><text x="546" y="402" text-anchor="middle" class="bbs bbn">VCC</text><circle cx="570" cy="292" r="5" fill="#c4c8ce" stroke="#7d8289"/><circle cx="570" cy="364" r="5" fill="#c4c8ce" stroke="#7d8289"/><text x="570" y="283" text-anchor="middle" class="silk">5</text><text x="570" y="383" text-anchor="middle" class="silk">4</text><text x="570" y="261" text-anchor="middle" class="bbs bbn">GND</text><text x="570" y="402" text-anchor="middle" class="bbs bbn">TX</text><path d="M522 220H618" class="lead"/><rect x="544" y="213" width="52" height="14" rx="6" fill="url(#gRes)" stroke="#7b6438"/><rect x="553" y="213" width="4" height="14" fill="#6b3d1f"/><rect x="561" y="213" width="4" height="14" fill="#111"/><rect x="569" y="213" width="4" height="14" fill="#c62828"/><rect x="586" y="213" width="3" height="14" fill="#c8a03a"/><path d="M522 244H618" class="lead"/><rect x="544" y="237" width="52" height="14" rx="6" fill="url(#gRes)" stroke="#7b6438"/><rect x="553" y="237" width="4" height="14" fill="#6b3d1f"/><rect x="561" y="237" width="4" height="14" fill="#111"/><rect x="569" y="237" width="4" height="14" fill="#c62828"/><rect x="586" y="237" width="3" height="14" fill="#c8a03a"/><text x="630" y="236" class="pbb">R1 R2 · 1 kΩ</text><path d="M738 244H834" class="lead"/><rect x="758" y="236" width="56" height="16" rx="7" fill="url(#gBlk)" stroke="#000"/><rect x="764" y="236" width="6" height="16" fill="#c9ccd1"/><text x="786.0" y="270" text-anchor="middle" class="pbb">D1 1N4005</text><path d="M680 396V388a34 20 0 0 1 68 0V396Z" fill="url(#gCyl)" stroke="#000"/><circle cx="690" cy="388" r="3.4" fill="#c4c8ce" stroke="#555"/><circle cx="714" cy="388" r="3.4" fill="#c4c8ce" stroke="#555"/><circle cx="738" cy="388" r="3.4" fill="#c4c8ce" stroke="#555"/><text x="690" y="414" text-anchor="middle" class="bbs">OUT</text><text x="714" y="414" text-anchor="middle" class="bbs">GND</text><text x="738" y="414" text-anchor="middle" class="bbs">IN</text><text x="676" y="392" text-anchor="end" class="pbb">U1 78L05</text><path d="M690 130V154" class="lead"/><ellipse cx="690" cy="142.0" rx="9" ry="8" fill="url(#gCap)" stroke="#8a4f12"/><text x="704" y="146.0" class="pbb">C1</text><path d="M762 502V526" class="lead"/><ellipse cx="762" cy="514.0" rx="9" ry="8" fill="url(#gCap)" stroke="#8a4f12"/><text x="776" y="518.0" class="pbb">C2</text><text x="210" y="181" text-anchor="middle" class="pg bbn">1</text><text x="210" y="485" text-anchor="middle" class="pg bbn">1</text><text x="306" y="181" text-anchor="middle" class="pg bbn">5</text><text x="306" y="485" text-anchor="middle" class="pg bbn">5</text><text x="426" y="181" text-anchor="middle" class="pg bbn">10</text><text x="426" y="485" text-anchor="middle" class="pg bbn">10</text><text x="546" y="181" text-anchor="middle" class="pg bbn">15</text><text x="546" y="485" text-anchor="middle" class="pg bbn">15</text><text x="666" y="181" text-anchor="middle" class="pg bbn">20</text><text x="666" y="485" text-anchor="middle" class="pg bbn">20</text><text x="786" y="181" text-anchor="middle" class="pg bbn">25</text><text x="786" y="485" text-anchor="middle" class="pg bbn">25</text><text x="906" y="181" text-anchor="middle" class="pg bbn">30</text><text x="906" y="485" text-anchor="middle" class="pg bbn">30</text><text x="1026" y="181" text-anchor="middle" class="pg bbn">35</text><text x="1026" y="485" text-anchor="middle" class="pg bbn">35</text><text x="1146" y="181" text-anchor="middle" class="pg bbn">40</text><text x="1146" y="485" text-anchor="middle" class="pg bbn">40</text><text x="1266" y="181" text-anchor="middle" class="pg bbn">45</text><text x="1266" y="485" text-anchor="middle" class="pg bbn">45</text><text x="1386" y="181" text-anchor="middle" class="pg bbn">50</text><text x="1386" y="485" text-anchor="middle" class="pg bbn">50</text><text x="1506" y="181" text-anchor="middle" class="pg bbn">55</text><text x="1506" y="485" text-anchor="middle" class="pg bbn">55</text><text x="1626" y="181" text-anchor="middle" class="pg bbn">60</text><text x="1626" y="485" text-anchor="middle" class="pg bbn">60</text><text x="190" y="199.5" text-anchor="middle" class="pg bbn">a</text><text x="1714" y="199.5" text-anchor="middle" class="pg bbn">a</text><text x="190" y="223.5" text-anchor="middle" class="pg bbn">b</text><text x="1714" y="223.5" text-anchor="middle" class="pg bbn">b</text><text x="190" y="247.5" text-anchor="middle" class="pg bbn">c</text><text x="1714" y="247.5" text-anchor="middle" class="pg bbn">c</text><text x="190" y="271.5" text-anchor="middle" class="pg bbn">d</text><text x="1714" y="271.5" text-anchor="middle" class="pg bbn">d</text><text x="190" y="295.5" text-anchor="middle" class="pg bbn">e</text><text x="1714" y="295.5" text-anchor="middle" class="pg bbn">e</text><text x="190" y="367.5" text-anchor="middle" class="pg bbn">f</text><text x="1714" y="367.5" text-anchor="middle" class="pg bbn">f</text><text x="190" y="391.5" text-anchor="middle" class="pg bbn">g</text><text x="1714" y="391.5" text-anchor="middle" class="pg bbn">g</text><text x="190" y="415.5" text-anchor="middle" class="pg bbn">h</text><text x="1714" y="415.5" text-anchor="middle" class="pg bbn">h</text><text x="190" y="439.5" text-anchor="middle" class="pg bbn">i</text><text x="1714" y="439.5" text-anchor="middle" class="pg bbn">i</text><text x="190" y="463.5" text-anchor="middle" class="pg bbn">j</text><text x="1714" y="463.5" text-anchor="middle" class="pg bbn">j</text></svg>
+  </div>
+
+  <div class="panel">
+   <div class="meta"><span id="grp"></span><span id="cnt"></span></div>
+   <h2 class="ttl" id="ttl"></h2>
+   <p class="do" id="do"></p>
+   <div>
+    <div class="lbl">Multimetrede görmen gereken</div>
+    <div class="expect"><span class="v" id="ev"></span><span class="mode" id="em"></span></div>
+   </div>
+   <div>
+    <div class="lbl" id="alab">Ölçtüğün değer</div>
+    <div class="answer" id="answer"></div>
+   </div>
+   <div class="res" id="res"></div>
+   <div class="checks" id="checks"></div>
+   <div class="final card" id="final"></div>
+   <div class="nav">
+    <button id="prev">← Geri</button>
+    <button id="next" class="primary">İleri →</button>
+   </div>
+  </div>
+ </div>
+</div>
+
+<script>
+// ---- Breadboard koordinatları (montaj rehberi çizimiyle aynı) ----
+const ROW = {a:196, b:220, c:244, d:268, e:292, f:364, g:388, h:412, i:436, j:460};
+const RAIL = {'T-':130, 'T+':154, 'B+':502, 'B-':526};
+const X = c => 210 + (c - 1) * 24;
+const IC = {8:[498,292], 7:[522,292], 6:[546,292], 5:[570,292], 1:[498,364], 2:[522,364], 3:[546,364], 4:[570,364]};
+const SH = {LV4:[258,268], LV3:[282,268], LGND:[306,268], LV:[330,268], LV2:[354,268], LV1:[378,268],
+            HV4:[258,388], HV3:[282,388], HGND:[306,388], HV:[330,388], HV2:[354,388], HV1:[378,388]};
+function P(n) {
+ if (/^p\d$/.test(n)) return IC[n[1]];
+ if (SH[n]) return SH[n];
+ const r = n.match(/^([TB][+-]):(\d+)$/);
+ if (r) return [X(+r[2]), RAIL[r[1]]];
+ return [X(+n.slice(1)), ROW[n[0]]];
+}
+const NAME = {p1:'L9637D pin 1 (RX)', p3:'L9637D pin 3 (VCC)', p4:'L9637D pin 4 (TX)', p5:'L9637D pin 5 (GND)', p6:'L9637D pin 6 (K)', p7:'L9637D pin 7 (VS)',
+ b7:'b7 (LV2 sütunu)', b8:'b8 (LV1 sütunu)', a8:'a8 (LV1, ESP TX deliği)', b15:'b15 (K sütunu)', j16:'j16 (pin 4 sütunu)',
+ b23:'b23 (D1 katot)', b27:'b27 (D1 anot, OBD 16)', h21:'h21 (78L05 OUT sütunu)'};
+const RAILN = {'T-':'üst − ray (GND)', 'T+':'üst + ray (12 V)', 'B+':'alt + ray (5 V)', 'B-':'alt − ray (GND)'};
+const where = n => NAME[n] || (SH[n] ? `dönüştürücü ${n} pini` : RAILN[n.split(':')[0]] || n);
+
+// Kablolar ve parçalar: hata kontrolünde parlatılır
+const W = {
+ gndBridge:[[234,130],[234,526]], vsWire:[[522,196],[522,154]], gndIc:[[570,196],[570,130]], v12:[[738,196],[738,154]],
+ in78:[[738,292],[738,364]], kWire:[[546,196],[618,268]], gndHv:[[306,460],[306,526]], hv5:[[330,460],[330,502]],
+ vcc:[[546,460],[546,502]], out78:[[690,460],[690,502]], gnd78:[[714,460],[714,526]],
+ rx:[[354,412],[366,402],[486,402],[498,412]], tx:[[378,436],[390,426],[558,426],[570,436]],
+ espGnd:[[306,76],[306,196]], esp3v3:[[330,76],[330,196]], espRx:[[354,76],[354,196]], espTx:[[378,76],[378,196]],
+ obd5:[[906,130],[906,96],[1074,96]], obd4:[[882,130],[882,80],[1074,80]], obd16:[[834,196],[834,64],[1074,64]], obd7:[[618,196],[618,48],[1074,48]],
+ c1:[[690,130],[690,154]], c2:[[762,502],[762,526]],
+};
+const B = {shifter:[242,254,152,148], ic:[482,266,104,124], r12:[536,206,68,52], d1:[748,230,76,28], u78:[668,366,84,58], esp:[290,36,104,50]};
+const WNAME = {gndBridge:'2. sütundaki GND köprüsü', vsWire:'a14 → üst + ray (VS)', gndIc:'a16 → üst − ray (entegre GND)', v12:'a23 → üst + ray',
+ in78:'e23 → f23 (78L05 IN)', kWire:'a15 → d18 (K, sarı)', gndHv:'j5 → alt − ray', hv5:'j6 → alt + ray (HV)', vcc:'j15 → alt + ray (VCC)',
+ out78:'j21 → alt + ray (78L05 OUT)', gnd78:'j22 → alt − ray (78L05 GND)', rx:'h13 → h7 (RX, yeşil)', tx:'i8 → i16 (TX, mavi)',
+ espGnd:'başlık GND → a5', esp3v3:'başlık 3V3 → a6', espRx:'başlık TXD → a7', espTx:'başlık RXD → a8', obd16:'OBD 16 → a27', obd4:'OBD 4 → üst − ray', obd7:'OBD 7 → a18'};
+
+const GND = 'T-:11';          // siyah probun sabit yeri
+const MM = {x:1030, y:196};    // multimetre gövdesi
+const JACK = {red:[1175, 500], black:[1095, 500]};
+const PARK = {red:[1190, 575], black:[1080, 575]};
+
+// ---- Adımlar ----
+// mode: V / Ω / diyot / bip · red, black: prob noktası · jump: [GND noktası, hedef] · flow: sinyalin geçtiği kablolar
+// checks: [metin, parlatılacak yer] · yer: kablo adı, parça adı ya da nokta
+const S = [
+ {g:'Hazırlık', t:'ESP\'nin TX ve RX tellerini çıkar', do:'Kartın başlığından gelen <b>TXD (a7)</b> ve <b>RXD (a8)</b> tellerini breadboard\'dan çıkar. GND (a5) ve 3V3 (a6) kalsın. <b>Kartın USB kablosunu da çıkar</b>, adaptör de bağlı olmasın: enerjisiz ölçümlerde devrede hiç gerilim olmamalı. USB takılıyken kartın 3V3\'ü dönüştürücü üzerinden devreyi besler, diyot, Ω ve bip ölçümleri yanlış çıkar.',
+  type:'yn', exp:'y', q:'Teller ve USB çıkarıldı mı?', xmark:['a7','a8'], hl:['espRx','espTx'], checks:[]},
+
+ {g:'Enerjisiz', t:'Pull-up direnci: pin 7 ↔ pin 6', do:'Multimetre <b>Ω</b>. Kırmızı prob pin 7 (VS), siyah prob pin 6 (K). Paralel iki 1 kΩ ≈ 500 Ω yapar.',
+  mode:'Ω', red:'p7', black:'p6', type:'v', min:440, max:580, typ:500, u:'Ω', scale:'k',
+  checks:[['≈1000 Ω: dirençlerden biri temas etmiyor. R1 (b14–b18) ve R2 (c14–c18) bacaklarına bas.','r12'],
+          ['OL (sonsuz): K hattında pull-up yok. Sarı kablo a15 → d18 yerinde mi?','kWire'],
+          ['≈0 Ω: pin 6 ile pin 7 kısa. Adaptördeki lehimlere bak.','ic']]},
+ {g:'Enerjisiz', t:'D1 diyotunun yönü', do:'Multimetre <b>diyot</b> modu. Kırmızı prob b27 (OBD 16 tarafı, anot), siyah prob b23 (katot, gri bant). Çoğu multimetre diyot modunda <b>mV</b> gösterir: ekranda 550 görürsen 0,55 V demektir, olduğu gibi yazabilirsin.',
+  mode:'diyot', red:'b27', black:'b23', type:'v', min:0.40, max:0.75, typ:0.55, u:'V', scale:'m',
+  checks:[['USB ya da adaptör takılıysa çıkar ve tekrar ölç: devrede gerilim varken diyot ölçümü yanlış çıkar (ör. 1000 mV üstü).','esp3v3'],
+          ['Probları ters çevir (kırmızı b23, siyah b27): OL görmelisin. İki yönde de değer çıkıyorsa ölçüm başka bir yoldan geçiyor.','d1'],
+          ['OL: diyot ters takılı. Gri bant c23 tarafında olmalı.','d1'],
+          ['≈0 V: diyot kısa ya da iki bacağı aynı sütunda.','d1']]},
+ {g:'Enerjisiz', t:'+12 V ray ↔ GND kısa olmamalı', do:'Multimetre <b>bip</b>. Kırmızı prob üst + ray, siyah prob üst − ray. İlk anda kısa bir bip (kondansatör dolarken) normaldir; <b>sürekli</b> bip kısa devredir.',
+  mode:'bip', red:'T+:12', black:GND, type:'yn', exp:'n', q:'Sürekli bip var mı?', disp:'OL',
+  checks:[['C1\'in iki bacağı ayrı raylarda mı (biri +, biri −)?','c1'],
+          ['a14 (VS) ve a23 kırmızı kabloları yanlışlıkla − raya mı gidiyor?','vsWire'],
+          ['Entegre ters takılıysa VS ile GND kısa görünebilir.','ic']]},
+ {g:'Enerjisiz', t:'+5 V ray ↔ GND kısa olmamalı', do:'Kırmızı prob alt + ray, siyah prob alt − ray. Sürekli bip olmamalı.',
+  mode:'bip', red:'B+:12', black:'B-:12', type:'yn', exp:'n', q:'Sürekli bip var mı?', disp:'OL',
+  checks:[['C2\'nin bacakları ayrı raylarda mı?','c2'],
+          ['78L05 bacakları kaymış mı (g21 OUT, g22 GND, g23 IN)?','u78'],
+          ['Turuncu kablolar (j6, j15, j21) + raya, siyahlar (j5, j22) − raya mı gidiyor?','hv5']]},
+ {g:'Enerjisiz', t:'pin 3 (VCC) ↔ 5 V ray', do:'Kırmızı prob pin 3, siyah prob alt + ray. Bip <b>olmalı</b>. Daha önce arıza tam olarak burada çıkmıştı.',
+  mode:'bip', red:'p3', black:'B+:17', type:'yn', exp:'y', q:'Bip var mı?', disp:'bip',
+  checks:[['j15 → alt + ray turuncu kablosu takılı mı, iki ucu da tam oturuyor mu?','vcc'],
+          ['Adaptörde pin 3 lehimi: entegre bacağından adaptör pinine bip var mı?','ic']]},
+ {g:'Enerjisiz', t:'pin 5 (GND) ↔ GND rayı', do:'Kırmızı prob pin 5, siyah prob üst − ray. Bip olmalı.',
+  mode:'bip', red:'p5', black:GND, type:'yn', exp:'y', q:'Bip var mı?', disp:'bip',
+  checks:[['a16 → üst − ray siyah kablosu.','gndIc'],['Adaptörde pin 5 lehimi.','ic']]},
+ {g:'Enerjisiz', t:'pin 4 (TX) ↔ HV1', do:'Kırmızı prob pin 4, siyah prob HV1. Mavi TX kablosu bunları bağlar, bip olmalı.',
+  mode:'bip', red:'p4', black:'HV1', type:'yn', exp:'y', q:'Bip var mı?', disp:'bip', flow:['tx'],
+  checks:[['Mavi kablo i8 → i16: i8 HV1 sütununda (8), i16 pin 4 sütununda (16) mı?','tx'],
+          ['Modül ters takılıysa 8. sütunda HV1 değil HV4 olur: soldan HV4 okunmalı.','shifter']]},
+ {g:'Enerjisiz', t:'pin 1 (RX) ↔ HV2', do:'Kırmızı prob pin 1, siyah prob HV2. Yeşil RX kablosu bunları bağlar, bip olmalı.',
+  mode:'bip', red:'p1', black:'HV2', type:'yn', exp:'y', q:'Bip var mı?', disp:'bip', flow:['rx'],
+  checks:[['Yeşil kablo h7 → h13 yerinde mi?','rx'],['Adaptörde pin 1 lehimi.','ic']]},
+
+ {g:'Besleme', t:'Adaptörü bağla', do:'12 V adaptörün <b>+</b> ucunu OBD 16 teline, <b>−</b> ucunu OBD 4 teline bağla. Kartı USB yazan Type-C\'den besle. Multimetreyi <b>V⎓</b> konumuna al; siyah prob artık hep üst − rayda.',
+  mode:'V', black:GND, type:'yn', exp:'y', q:'Bağladın mı?', flow:['obd16','obd4','esp3v3','espGnd'], checks:[]},
+ {g:'Besleme', t:'Besleme gerilimi (OBD 16)', do:'Kırmızı prob b27 (OBD 16 telinin sütunu). Ölçtüğün değeri yaz; sonraki aralıklar buna göre hesaplanır.',
+  mode:'V', red:'b27', black:GND, type:'v', min:8, max:15, typ:12.4, u:'V', vs:true,
+  checks:[['Eksi değer: adaptör ters bağlı.','obd16'],['0 V: OBD 16 kablosu a27\'ye oturmamış.','obd16']]},
+ {g:'Besleme', t:'Üst + ray (diyot sonrası 12 V)', do:'Kırmızı prob üst + ray. Beslemeden ≈0,6 V düşük olmalı.',
+  mode:'V', red:'T+:12', black:GND, type:'v', min:vs=>vs-1, max:vs=>vs-0.35, typ:vs=>vs-0.6, u:'V', flow:['obd16','v12'],
+  checks:[['0 V: D1 ters (gri bant c23\'te olmalı) ya da a23 → üst + ray kablosu yok.','d1'],
+          ['a23 → üst + ray kırmızı kablosu.','v12'],
+          ['Besleme ile aynı: D1 atlanmış ya da kısa.','d1']]},
+ {g:'Besleme', t:'78L05 çıkışı', do:'Kırmızı prob h21 (78L05 OUT sütunu).',
+  mode:'V', red:'h21', black:GND, type:'v', min:4.8, max:5.2, typ:5.0, u:'V', flow:['in78'],
+  checks:[['0 V: 78L05 ters takılı. Yazılı düz yüz alt kenara bakmalı: g21 OUT, g22 GND, g23 IN.','u78'],
+          ['GND bacağı bağlı değil: j22 → alt − ray.','gnd78'],
+          ['Girişe yakın (≈11 V): bacaklar karışık.','u78'],
+          ['IN gelmiyor: e23 → f23 kablosu.','in78'],
+          ['78L05 ısınıyorsa 5 V tarafında kısa var, beslemeyi kes.','u78']]},
+ {g:'Besleme', t:'Alt + ray (5 V)', do:'Kırmızı prob alt + ray.',
+  mode:'V', red:'B+:12', black:GND, type:'v', min:4.8, max:5.2, typ:5.0, u:'V', flow:['out78'],
+  checks:[['78L05 OUT doğru ama burada yoksa j21 → alt + ray turuncu kablosu.','out78'],
+          ['Ray 32. sütunda bölünüyor: kablolar sol yarıda mı?','out78']]},
+ {g:'Besleme', t:'L9637D pin 7 (VS)', do:'Kırmızı prob doğrudan adaptörün pin 7 bacağına.',
+  mode:'V', red:'p7', black:GND, type:'v', min:vs=>vs-1, max:vs=>vs-0.35, typ:vs=>vs-0.6, u:'V', flow:['vsWire'],
+  checks:[['a14 → üst + ray kırmızı kablosu.','vsWire'],['Adaptörde pin 7 lehimi.','ic']]},
+ {g:'Besleme', t:'L9637D pin 3 (VCC)', do:'Kırmızı prob adaptörün pin 3 bacağına.',
+  mode:'V', red:'p3', black:GND, type:'v', min:4.8, max:5.2, typ:5.0, u:'V', flow:['vcc'],
+  checks:[['j15 → alt + ray turuncu kablosu: daha önce tam olarak bu eksikti.','vcc'],['Adaptörde pin 3 lehimi.','ic']]},
+ {g:'Besleme', t:'L9637D pin 5 (GND)', do:'Kırmızı prob adaptörün pin 5 bacağına. 0 V olmalı.',
+  mode:'V', red:'p5', black:GND, type:'v', min:-0.05, max:0.05, typ:0, u:'V', flow:['gndIc'],
+  checks:[['a16 → üst − ray siyah kablosu.','gndIc'],['Üst ve alt GND rayları 2. sütunda köprülü mü?','gndBridge']]},
+ {g:'Besleme', t:'Dönüştürücü HV pini', do:'Kırmızı prob dönüştürücünün HV pinine.',
+  mode:'V', red:'HV', black:GND, type:'v', min:4.8, max:5.2, typ:5.0, u:'V', flow:['hv5'],
+  checks:[['j6 → alt + ray turuncu kablosu.','hv5'],['Modül GND\'si: j5 → alt − ray.','gndHv']]},
+ {g:'Besleme', t:'Dönüştürücü LV pini', do:'Kırmızı prob dönüştürücünün LV pinine. Kartın 3V3\'ü buradan girer.',
+  mode:'V', red:'LV', black:GND, type:'v', min:2.8, max:3.5, typ:3.3, u:'V', flow:['esp3v3'],
+  checks:[['0 V: başlık 3V3 → a6 teli ya da kart beslenmiyor (USB Type-C).','esp3v3'],
+          ['Kart GND\'si: başlık GND → a5.','espGnd'],
+          ['≈5 V: modül ters takılı (HV ile LV yer değişmiş). ESP\'yi bu haliyle bağlama!','shifter']]},
+
+ {g:'Boşta', t:'pin 6 (K) boşta', do:'Kırmızı prob pin 6. 500 Ω pull-up K hattını VS\'ye çeker.',
+  mode:'V', red:'p6', black:GND, type:'v', min:vs=>vs-1.3, max:vs=>vs-0.3, typ:vs=>vs-0.6, u:'V', flow:['kWire'],
+  checks:[['Pull-up dirençleri R1 / R2.','r12'],
+          ['0 V ve pin 4 HIGH ise entegre K\'yı bırakmıyor: adaptör yönü yanlış ya da entegre arızalı.','ic'],
+          ['Sarı K kablosu GND\'ye değiyor mu?','kWire']]},
+ {g:'Boşta', t:'pin 4 (TX) boşta', do:'Kırmızı prob pin 4. Dönüştürücünün HV1 pull-up\'ı 5 V\'a çeker.',
+  mode:'V', red:'p4', black:GND, type:'v', min:4.4, max:5.2, typ:4.9, u:'V', flow:['tx'],
+  checks:[['Mavi TX kablosu i8 → i16.','tx'],['Dönüştürücünün HV beslemesi (HV pini adımı).','hv5']]},
+ {g:'Boşta', t:'pin 1 (RX) boşta', do:'Kırmızı prob pin 1. K HIGH iken RX de HIGH.',
+  mode:'V', red:'p1', black:GND, type:'v', min:4.4, max:5.2, typ:4.9, u:'V', flow:['rx'],
+  checks:[['Önce pin 6 (K) boşta adımı geçti mi? K LOW ise RX de LOW olur.','ic'],['Yeşil RX kablosu h13 → h7.','rx']]},
+ {g:'Boşta', t:'LV1 boşta (ESP TX tarafı)', do:'Kırmızı prob b8 (LV1 sütunu, a8\'deki tel çıkarıldı).',
+  mode:'V', red:'b8', black:GND, type:'v', min:2.8, max:3.5, typ:3.3, u:'V',
+  checks:[['≈5 V: modül ters takılı.','shifter'],['0 V: LV1 GND\'ye kısa ya da LV beslemesi yok.','esp3v3']]},
+ {g:'Boşta', t:'LV2 boşta (ESP RX tarafı)', do:'Kırmızı prob b7 (LV2 sütunu).',
+  mode:'V', red:'b7', black:GND, type:'v', min:2.8, max:3.5, typ:3.3, u:'V',
+  checks:[['≈5 V: modül ters takılı.','shifter'],['0 V: RX zinciri sürekli LOW (pin 1 boşta adımına bak).','rx']]},
+
+ {g:'Sinyal', t:'L9637D TX sürücüsü: pin 4 → GND', do:'Atlama kablosunun bir ucunu <b>alt − ray</b>a, diğerini <b>j16</b>\'ya (pin 4 sütunu) tak. Kırmızı prob pin 6 (K). Entegre K\'yı aşağı çekmeli.',
+  mode:'V', red:'p6', black:GND, jump:['B-:16','j16'], type:'v', min:-0.1, max:1.4, typ:0.8, u:'V', flow:['kWire'],
+  checks:[['VS, VCC ve GND adımları geçtiyse adaptör yönü: pin 1 sol altta (f13), kare delik.','ic'],
+          ['Atlama kablosu gerçekten 16. sütunda mı?','ic'],
+          ['Hepsi doğruysa entegre arızalı.','ic']]},
+ {g:'Sinyal', t:'Yankı: pin 4 → GND iken pin 1', do:'Atlama kablosu yerinde. Kırmızı prob pin 1 (RX). K\'daki düşüş RX\'e yansımalı.',
+  mode:'V', red:'p1', black:GND, jump:['B-:16','j16'], type:'v', min:-0.1, max:0.6, typ:0.2, u:'V', flow:['kWire'],
+  checks:[['K iniyor ama RX inmiyor: adaptörde pin 1 lehimi ya da entegrenin RX çıkışı.','ic']]},
+ {g:'Sinyal', t:'Yankı ESP\'ye ulaşıyor mu: LV2', do:'Atlama kablosu yerinde. Kırmızı prob b7 (LV2). ESP\'nin GPIO43\'te göreceği değer budur.',
+  mode:'V', red:'b7', black:GND, jump:['B-:16','j16'], type:'v', min:-0.1, max:0.5, typ:0.15, u:'V', flow:['rx'],
+  checks:[['Pin 1 iniyor ama LV2 inmiyor: yeşil kablo h13 → h7.','rx'],
+          ['Dönüştürücünün 2. kanalı arızalı olabilir: HV2 iniyor mu, ona bak.','shifter'],
+          ['LV beslemesi (LV pini adımı).','esp3v3']]},
+ {g:'Sinyal', t:'L9637D RX alıcısı: K → GND', do:'Atlama kablosunu j16\'dan çıkar. Şimdi <b>üst − ray</b> ile <b>b15</b> (K sütunu) arasına tak, birkaç saniye tut. Kırmızı prob pin 1. ECU\'nun cevabını taklit eder.',
+  mode:'V', red:'p1', black:GND, jump:['T-:15','b15'], type:'v', min:-0.1, max:0.6, typ:0.2, u:'V', flow:['rx'],
+  checks:[['VCC doğruysa RX alıcısı çalışmıyor: entegre arızalı.','ic'],['Pin 1 lehimi.','ic']]},
+ {g:'Sinyal', t:'Dönüştürücü TX kanalı: LV1 → GND', do:'Atlama kablosunu <b>üst − ray</b> ile <b>a8</b> arasına tak (ESP TX telinin deliği). Kırmızı prob HV1. Bu, ESP\'nin TX\'i LOW yapmasının aynısıdır.',
+  mode:'V', red:'HV1', black:GND, jump:['T-:8','a8'], type:'v', min:-0.1, max:0.5, typ:0.1, u:'V',
+  checks:[['LV beslemesi 3.3 V mi (LV pini adımı)? Gate\'ler oradan beslenir.','esp3v3'],
+          ['Kanal 1 arızalı: TX\'i kanal 3\'e taşı (a8 yerine a4, i8 yerine i4).','shifter']]},
+ {g:'Sinyal', t:'Tam zincir: LV1 → GND iken K', do:'Atlama kablosu a8\'de. Kırmızı prob pin 6 (K). ESP\'nin yapacağını sen yapıyorsun: K inmeli.',
+  mode:'V', red:'p6', black:GND, jump:['T-:8','a8'], type:'v', min:-0.1, max:1.4, typ:0.8, u:'V', flow:['tx','kWire'],
+  checks:[['HV1 iniyor ama K inmiyor: mavi kablo i8 → i16.','tx'],['Pin 4 → GND testi geçtiyse sorun kabloda.','tx']]},
+ {g:'Sinyal', t:'Tam zincir: LV1 → GND iken LV2', do:'Atlama kablosu a8\'de. Kırmızı prob b7 (LV2). Sinyal entegreden geçip RX kanalından geri dönmeli.',
+  mode:'V', red:'b7', black:GND, jump:['T-:8','a8'], type:'v', min:-0.1, max:0.5, typ:0.15, u:'V', flow:['tx','kWire','rx'],
+  checks:[['K iniyor ama LV2 inmiyor: yeşil kablo h13 → h7 ya da dönüştürücünün 2. kanalı.','rx']]},
+ {g:'Sinyal', t:'Kabloyu çek: her şey geri yükselsin', do:'Atlama kablosunu çıkar. LV1 ve LV2 ≈3.3 V, K ≈ besleme olmalı.',
+  mode:'V', red:'b7', black:GND, type:'yn', exp:'y', q:'Geri yükseldi mi?', disp:'3,30',
+  checks:[['LOW\'da kalan nokta: pull-up ya da o kanal arızalı.','shifter']]},
+
+ {g:'ESP', t:'TX ve RX tellerini geri tak', do:'Başlık <b>RXD</b> (GPIO44, bizim TX) → <b>a8</b>, başlık <b>TXD</b> (GPIO43, bizim RX) → <b>a7</b>. Yazılar çaprazdır. Kartın <b>UART</b> yazan Type-C\'si boş kalmalı.',
+  type:'yn', exp:'y', q:'Taktın mı?', flow:['espTx','espRx'],
+  checks:[['TXD\'yi a8\'e takarsan ESP çıkışı dönüştürücünün RX çıkışıyla çakışır, K hiç inmez.','espTx'],
+          ['UART Type-C takılıyken FSUSB42 başlığı CH343\'e verir: "K inmiyor" çıkar.','esp']]},
+];
+
+// ---- Durum ----
+const KEY = 'kline-anim-test-v1';
+let st = {v:{}, i:0};
+try { st = Object.assign(st, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const vsIdx = S.findIndex(s => s.vs);
+const vs = () => { const v = parseFloat(String(st.v[vsIdx] ?? '').replace(',', '.')); return isFinite(v) && v > 0 ? v : 12.4; };
+const L = x => typeof x === 'function' ? x(vs()) : x;
+const fmt = (x, d = 2) => x.toFixed(d).replace('.', ',');
+
+function result(i) {
+ const s = S[i], v = st.v[i];
+ if (v === undefined || v === '') return null;
+ if (s.type === 'yn') return v === s.exp;
+ const n = num(s, v);
+ return isFinite(n) ? n >= L(s.min) && n <= L(s.max) : null;
+}
+// Ekranda mV (diyot) ya da kΩ gösteren multimetreler için birim düzeltme
+function num(s, v) {
+ const n = parseFloat(String(v).replace(',', '.'));
+ if (s.scale === 'm' && n > 5) return n / 1000;
+ if (s.scale === 'k' && n > 0 && n < 5) return n * 1000;
+ return n;
+}
+function dispVal(s) {
+ if (s.disp) return s.disp;
+ if (s.type !== 'v') return '';
+ const t = L(s.typ);
+ return s.u === 'Ω' ? String(Math.round(t)) : fmt(t);
+}
+function expText(s) {
+ if (s.type === 'yn') return s.mode === 'bip' ? (s.exp === 'y' ? 'bip sesi' : 'ses yok · OL') : '';
+ const u = s.u, d = u === 'Ω' ? 0 : 2;
+ return `${fmt(L(s.min), d)} … ${fmt(L(s.max), d)} ${u}`;
+}
+
+// ---- Çizim katmanı ----
+const svg = document.getElementById('bb');
+const NS = 'http://www.w3.org/2000/svg';
+const fx = document.createElementNS(NS, 'g');
+const meterG = document.createElementNS(NS, 'g');
+svg.append(fx, meterG);
+const pts = a => a.map(p => p.join(',')).join(' ');
+
+meterG.innerHTML = `
+ <rect x="${MM.x}" y="${MM.y}" width="230" height="330" rx="22" fill="#f2b705" stroke="#6b5100" stroke-width="2"/>
+ <rect x="${MM.x + 12}" y="${MM.y + 12}" width="206" height="306" rx="14" fill="#2a2c30"/>
+ <rect x="${MM.x + 26}" y="${MM.y + 26}" width="178" height="82" rx="6" fill="#b9c8a6" stroke="#111" stroke-width="2"/>
+ <text id="lcd" x="${MM.x + 194}" y="${MM.y + 88}" text-anchor="end" style="font:700 44px var(--mono);fill:#1d2a12">----</text>
+ <text id="lcdu" x="${MM.x + 36}" y="${MM.y + 48}" style="font:700 15px var(--mono);fill:#1d2a12"></text>
+ <g id="dial" transform="translate(${MM.x + 115} ${MM.y + 190})">
+  <circle r="54" fill="#1b1c1f" stroke="#555" stroke-width="2"/>
+  <circle r="40" fill="#3a3c41"/>
+  <rect id="knob" x="-6" y="-50" width="12" height="44" rx="5" fill="#f2b705" style="transition:transform .5s"/>
+ </g>
+ <g style="font:700 13px var(--mono);fill:#e9e9e9" text-anchor="middle">
+  <text x="${MM.x + 50}" y="${MM.y + 140}">Ω</text>
+  <text x="${MM.x + 92}" y="${MM.y + 128}">▷|</text>
+  <text x="${MM.x + 138}" y="${MM.y + 128}">♪</text>
+  <text x="${MM.x + 180}" y="${MM.y + 140}">V⎓</text>
+ </g>
+ <circle cx="${JACK.black[0]}" cy="${JACK.black[1]}" r="11" fill="#111" stroke="#777" stroke-width="2"/>
+ <circle cx="${JACK.red[0]}" cy="${JACK.red[1]}" r="11" fill="#b01818" stroke="#777" stroke-width="2"/>
+ <text x="${JACK.black[0]}" y="${JACK.black[1] - 18}" text-anchor="middle" style="font:700 11px var(--mono);fill:#ddd">COM</text>
+ <text x="${JACK.red[0]}" y="${JACK.red[1] - 18}" text-anchor="middle" style="font:700 11px var(--mono);fill:#ddd">VΩ</text>
+ <path id="cab-black" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round"/>
+ <path id="cab-red" fill="none" stroke="#c81e1e" stroke-width="5" stroke-linecap="round"/>
+ <g id="tip-black"></g><g id="tip-red"></g>`;
+const KNOB = {'Ω':-62, 'diyot':-22, 'bip':22, 'V':62};
+
+// Prob: ucu delikte, gövdesi sağ üste doğru
+function probe(color, p) {
+ const [x, y] = p, c = color === 'red' ? '#c81e1e' : '#151515';
+ document.getElementById('tip-' + color).innerHTML = `
+  <line x1="${x}" y1="${y}" x2="${x + 14}" y2="${y - 20}" stroke="#c9ccd1" stroke-width="3" stroke-linecap="round"/>
+  <line x1="${x + 14}" y1="${y - 20}" x2="${x + 40}" y2="${y - 58}" stroke="${c}" stroke-width="11" stroke-linecap="round"/>
+  <circle cx="${x}" cy="${y}" r="3.5" fill="${c}" stroke="#fff" stroke-width="1.5"/>`;
+ const [jx, jy] = JACK[color], ex = x + 40, ey = y - 58;
+ const my = Math.max(jy, ey) + 60;
+ document.getElementById('cab-' + color).setAttribute('d', `M${jx} ${jy} C${jx} ${my} ${ex + 60} ${ey - 40} ${ex} ${ey}`);
+}
+
+let cur = {red:PARK.red, black:PARK.black}, anim = 0, timers = [];
+const FAST = location.search.includes('static');   // önizleme için animasyonsuz
+function moveProbes(to, ms) {
+ const from = {red:cur.red, black:cur.black}, t0 = performance.now(), id = ++anim;
+ const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+ return new Promise(done => {
+  const step = now => {
+   if (id !== anim) return;
+   const k = ms ? ease(Math.min(1, Math.max(0, (now - t0) / ms))) : 1;
+   for (const c of ['red', 'black']) {
+    const p = [from[c][0] + (to[c][0] - from[c][0]) * k, from[c][1] + (to[c][1] - from[c][1]) * k];
+    cur[c] = p; probe(c, p);
+   }
+   k < 1 ? requestAnimationFrame(step) : done();
+  };
+  requestAnimationFrame(step);
+ });
+}
+
+function lcd(text, unit) {
+ document.getElementById('lcd').textContent = text;
+ document.getElementById('lcdu').textContent = unit || '';
+}
+function countTo(s) {
+ const target = dispVal(s);
+ const n = parseFloat(String(target).replace(',', '.'));
+ if (!isFinite(n)) { lcd(target, s.mode === 'bip' ? '♪' : ''); return; }
+ const d = s.u === 'Ω' ? 0 : 2, t0 = performance.now(), id = anim;
+ const unit = s.u === 'Ω' ? 'Ω' : s.mode === 'diyot' ? '▷| V' : 'V DC';
+ const tick = now => {
+  if (id !== anim) return;
+  const k = FAST ? 1 : Math.min(1, Math.max(0, (now - t0) / 650));
+  lcd(fmt(n * k * (1 + (Math.random() - .5) * .08), d), unit);
+  k < 1 ? requestAnimationFrame(tick) : lcd(fmt(n, d), unit);
+ };
+ requestAnimationFrame(tick);
+}
+
+function ring(p, color, label, below) {
+ const [x, y] = p;
+ return `<circle class="ring" cx="${x}" cy="${y}" r="10" stroke="${color}"/>
+  <circle cx="${x}" cy="${y}" r="9" fill="none" stroke="${color}" stroke-width="3"/>
+  ${label ? `<text class="callout" x="${x}" y="${below ? y + 30 : y - 18}" text-anchor="middle" style="fill:${color}">${label}</text>` : ''}`;
+}
+function hlHtml(what) {
+ if (W[what]) return `<polyline class="hlw" points="${pts(W[what])}"/>`;
+ if (B[what]) { const [x, y, w, h] = B[what]; return `<rect class="hlb" x="${x - 6}" y="${y - 6}" width="${w + 12}" height="${h + 12}" rx="8"/>`; }
+ return '';
+}
+
+let selCheck = -1;
+function drawFx(s) {
+ let h = '';
+ // 1. adımda çıkarılan ESP TX/RX telleri son adıma kadar soluk
+ if (st.i > 0 && st.i < S.length - 1) h += ['espRx', 'espTx'].map(w => `<polyline points="${pts(W[w])}" fill="none" stroke="#e6e7e2" stroke-opacity=".85" stroke-width="12" stroke-linecap="round"/>`).join('');
+ for (const f of s.flow || []) h += `<polyline class="flow" points="${pts(W[f])}"/>`;
+ for (const w of s.hl || []) h += hlHtml(w);
+ if (selCheck >= 0 && s.checks[selCheck]) h += hlHtml(s.checks[selCheck][1]);
+ for (const m of s.xmark || []) {
+  const [x, y] = P(m);
+  h += `<path class="xmark" d="M${x - 12} ${y - 12}L${x + 12} ${y + 12}M${x + 12} ${y - 12}L${x - 12} ${y + 12}"/>`;
+ }
+ if (s.xmark) {
+  const [x, y] = P(s.xmark[0]);
+  h += `<text class="callout" x="${x + 12}" y="${y + 36}" text-anchor="middle" style="fill:#d62828">çıkar</text>`;
+ }
+ if (s.jump) {
+  const [a, b] = s.jump.map(P), mx = (a[0] + b[0]) / 2 + 40, my = (a[1] + b[1]) / 2;
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) * 1.3 + 40;
+  h += `<path class="jump" style="--len:${len}" d="M${a[0]} ${a[1]} Q${mx} ${my} ${b[0]} ${b[1]}"/>
+   <rect x="${a[0] - 5}" y="${a[1] - 5}" width="10" height="10" rx="2" fill="#ff8a00"/>
+   <rect x="${b[0] - 5}" y="${b[1] - 5}" width="10" height="10" rx="2" fill="#ff8a00"/>`;
+ }
+ if (s.red) h += ring(P(s.red), '#d62828');
+ if (s.black && s.black !== GND) h += ring(P(s.black), '#151515');
+ // Alt açıklama: hangi uç nereye
+ const leg = [];
+ if (s.red) leg.push(['#d62828', 'Kırmızı prob', where(s.red)]);
+ if (s.black) leg.push(['#151515', 'Siyah prob', where(s.black)]);
+ if (s.jump) leg.push(['#ff8a00', 'Atlama kablosu', `${where(s.jump[0])} → ${where(s.jump[1])}`]);
+ h += leg.map(([c, a, b], k) => `<g transform="translate(60 ${578 + k * 18})">
+  <rect x="0" y="-11" width="22" height="12" rx="3" fill="${c}"/>
+  <text x="30" y="0" style="font:700 13px var(--mono);fill:#23262b">${a}: <tspan style="font-weight:500">${b}</tspan></text></g>`).join('');
+ fx.innerHTML = h;
+}
+
+function play() {
+ const s = S[st.i];
+ timers.forEach(clearTimeout); timers = [];
+ document.getElementById('knob').style.transform = `rotate(${KNOB[s.mode] ?? 0}deg)`;
+ lcd(s.mode ? '----' : 'OFF', '');
+ drawFx(s);
+ const to = {red:s.red ? P(s.red) : PARK.red, black:s.black ? P(s.black) : PARK.black};
+ timers.push(setTimeout(() => moveProbes(to, FAST ? 0 : 900).then(() => { if (s.mode && (s.red || s.disp)) countTo(s); }), s.jump ? 700 : 150));
+}
+
+// ---- Panel ----
+const $ = id => document.getElementById(id);
+function show(animate = true) {
+ const s = S[st.i];
+ selCheck = -1;
+ $('grp').textContent = s.g;
+ $('cnt').textContent = `${st.i + 1} / ${S.length}`;
+ $('ttl').textContent = s.t;
+ $('do').innerHTML = s.do;
+ const disp = dispVal(s);
+ $('ev').textContent = s.type === 'v' ? expText(s) : (expText(s) || '—');
+ $('em').textContent = s.mode ? `mod: ${s.mode === 'V' ? 'V⎓' : s.mode}` + (s.type === 'v' ? ` · tipik ${disp} ${s.u}` : '') : '';
+ if (s.type === 'yn') {
+  $('alab').textContent = s.q;
+  $('answer').innerHTML = `<button data-v="y">Evet</button><button data-v="n">Hayır</button>`;
+  $('answer').querySelectorAll('button').forEach(b => {
+   b.classList.toggle('on', st.v[st.i] === b.dataset.v);
+   b.onclick = () => { st.v[st.i] = b.dataset.v; save(); panelState(); };
+  });
+ } else {
+  $('alab').textContent = 'Ölçtüğün değer';
+  $('answer').innerHTML = `<input id="inp" inputmode="decimal" placeholder="—" value="${st.v[st.i] ?? ''}"><span class="u">${s.u}</span>`;
+  $('inp').oninput = e => { st.v[st.i] = e.target.value.trim(); save(); panelState(); };
+  $('inp').onkeydown = e => { if (e.key === 'Enter') go(1); };
+ }
+ $('prev').disabled = st.i === 0;
+ $('next').textContent = st.i === S.length - 1 ? 'Sonuç' : 'İleri →';
+ panelState();
+ if (animate) play();
+}
+
+function panelState() {
+ const s = S[st.i], r = result(st.i);
+ if (s.type === 'yn') $('answer').querySelectorAll('button').forEach(b => b.classList.toggle('on', st.v[st.i] === b.dataset.v));
+ $('res').className = 'res' + (r === true ? ' ok' : r === false ? ' bad' : '');
+ const raw = parseFloat(String(st.v[st.i] ?? '').replace(',', '.'));
+ const conv = s.type === 'v' && r !== null && num(s, st.v[st.i]) !== raw ? ` (${st.v[st.i]} → ${fmt(num(s, st.v[st.i]), s.u === 'Ω' ? 0 : 3)} ${s.u})` : '';
+ $('res').textContent = (r === true ? 'GEÇTİ' : r === false ? 'HATALI · aşağıdakileri sırayla kontrol et' : '') + conv;
+ const c = $('checks');
+ c.className = 'checks' + (r === false ? ' alert' : '');
+ c.innerHTML = s.checks.length ? `<div class="lbl">${r === false ? 'Kontrol et (tıkla, çizimde gösterir)' : 'Değer tutmazsa kontrol et'}</div>` +
+  s.checks.map(([t], k) => `<button class="chk${k === selCheck ? ' sel' : ''}" data-k="${k}"><i>${k + 1}</i><span>${t}</span></button>`).join('') : '';
+ c.querySelectorAll('.chk').forEach(b => b.onclick = () => {
+  selCheck = selCheck === +b.dataset.k ? -1 : +b.dataset.k;
+  drawFx(S[st.i]); panelState();
+ });
+ strip(); final();
+}
+
+function strip() {
+ let h = '', g = '', open = false;
+ S.forEach((s, i) => {
+  if (s.g !== g) { if (open) h += '</span>'; g = s.g; h += `<span class="grp"><b>${g}</b>`; open = true; }
+  const r = result(i);
+  h += `<button data-i="${i}" title="${s.t}" class="${i === st.i ? 'cur ' : ''}${r === true ? 'ok' : r === false ? 'bad' : ''}">${i + 1}</button>`;
+ });
+ $('strip').innerHTML = h + '</span>';
+ $('strip').querySelectorAll('button').forEach(b => b.onclick = () => { st.i = +b.dataset.i; save(); show(); });
+}
+
+// Sonuç: grup bazında
+function final() {
+ const el = $('final');
+ if (st.i !== S.length - 1) { el.className = 'final'; return; }
+ const groups = [...new Set(S.map(s => s.g))];
+ const tag = g => {
+  const r = S.map((s, i) => [s, result(i)]).filter(([s]) => s.g === g).map(([, r]) => r);
+  return r.includes(false) ? '<span class="tag bad">HATA</span>' : r.every(x => x === true) ? '<span class="tag ok">TAMAM</span>' : '<span class="tag">eksik</span>';
+ };
+ const firstBad = S.findIndex((s, i) => result(i) === false);
+ el.className = 'final show';
+ el.innerHTML = `<div class="lbl">Özet</div>` + groups.map(g => `<div class="vrow"><span>${g}</span>${tag(g)}</div>`).join('') +
+  (firstBad >= 0 ? `<p style="margin:10px 0 0">İlk hata: <b>${firstBad + 1}. ${S[firstBad].t}</b>. Önce onu düzelt.</p>`
+   : '<p style="margin:10px 0 0">Hata yoksa L9637D ve dönüştürücü sağlam: kalan şüpheli Waveshare tarafı (UART Type-C, RXD/TXD yönü).</p>');
+}
+
+function go(d) {
+ const n = Math.max(0, Math.min(S.length - 1, st.i + d));
+ if (n === st.i) return;
+ st.i = n; save(); show();
+}
+
+$('prev').onclick = () => go(-1);
+$('next').onclick = () => go(1);
+$('replay').onclick = () => { cur = {red:PARK.red, black:PARK.black}; play(); };
+$('reset').onclick = () => { if (confirm('Tüm ölçümler silinsin mi?')) { st = {v:{}, i:0}; save(); show(); } };
+$('copy').onclick = async () => {
+ const lines = ['Breadboard ölçüm testi · ' + new Date().toLocaleString('tr-TR')];
+ S.forEach((s, i) => {
+  const r = result(i);
+  if (r === null) return;
+  const v = s.type === 'yn' ? (st.v[i] === 'y' ? 'evet' : 'hayır') : `${st.v[i]} ${s.u}`;
+  lines.push(`${r ? 'OK  ' : 'HATA'} ${i + 1}. ${s.t}: ${v}${s.type === 'v' ? ` (beklenen ${expText(s)})` : ''}`);
+ });
+ const txt = lines.join('\n');
+ try { await navigator.clipboard.writeText(txt); alert('Kopyalandı'); } catch (e) { prompt('Kopyala:', txt); }
+};
+document.addEventListener('keydown', e => {
+ if (e.target.tagName === 'INPUT') return;
+ if (e.key === 'ArrowRight') go(1);
+ if (e.key === 'ArrowLeft') go(-1);
+});
+
+probe('red', PARK.red); probe('black', PARK.black);
+const hashStep = parseInt(location.hash.slice(1));
+if (hashStep >= 1 && hashStep <= S.length) st.i = hashStep - 1;
+show();
+</script>
+</body>
+</html>

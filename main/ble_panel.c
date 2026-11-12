@@ -43,6 +43,8 @@ static uint16_t s_stream_handle;
 static volatile uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool s_sub;             // telefon bildirimlere abone
 static volatile bool s_fresh;           // yeni abone: her şeyi baştan gönder
+static volatile bool s_enabled;         // ayarlardaki "Telefon (BLE)": kapalıyken reklam yok, bağlantı kesilir
+static volatile bool s_synced;          // NimBLE yığını hazır (reklam ancak bundan sonra başlar)
 static uint8_t s_own_addr_type;
 static QueueHandle_t s_cmdq;
 
@@ -216,8 +218,8 @@ static int gap_event(struct ble_gap_event *ev, void *arg);
 
 static void advertise(void)
 {
-    if (s_conn != BLE_HS_CONN_HANDLE_NONE) {
-        return;     // tek bağlantı: bağlıyken reklam yok
+    if (!s_enabled || !s_synced || s_conn != BLE_HS_CONN_HANDLE_NONE) {
+        return;     // kapalı, yığın hazır değil ya da tek bağlantı: bağlıyken reklam yok
     }
     struct ble_hs_adv_fields f = {0};
     f.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
@@ -271,7 +273,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         ESP_LOGI(TAG, "telefon ayrıldı (%d)", ev->disconnect.reason);
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_sub = false;
-        vems_set_wanted_channels(0);    // telefon yok: varsayılan sorgu listesi
+        vems_set_remote_channels(0);    // telefon yok: sorgu sadece ekrana (ya da varsayılan listeye) göre
         advertise();
         break;
     case BLE_GAP_EVENT_SUBSCRIBE:
@@ -302,7 +304,28 @@ static void on_sync(void)
 {
     ble_hs_util_ensure_addr(0);
     ble_hs_id_infer_auto(0, &s_own_addr_type);
+    s_synced = true;
     advertise();
+}
+
+void ble_panel_set_enabled(bool on)
+{
+    s_enabled = on;
+    if (on) {
+        advertise();
+        return;
+    }
+    if (s_synced) {
+        ble_gap_adv_stop();
+        if (s_conn != BLE_HS_CONN_HANDLE_NONE) {
+            ble_gap_terminate(s_conn, BLE_ERR_REM_USER_CONN_TERM);     // DISCONNECT olayı reklamı yeniden açmaz
+        }
+    }
+}
+
+bool ble_panel_connected(void)
+{
+    return s_conn != BLE_HS_CONN_HANDLE_NONE && s_sub;
 }
 
 static void host_task(void *arg)
@@ -338,7 +361,7 @@ static void panel_task(void *arg)
                 vems_rescan();
             } else if (strncmp(cmd, "want ", 5) == 0) {
                 // telefonda öne alınan kutucukların kanalları (CH_BIT, onaltılık): K-Line sorgusu bunlara ağırlık verir
-                vems_set_wanted_channels(strtoul(cmd + 5, NULL, 16));
+                vems_set_remote_channels(strtoul(cmd + 5, NULL, 16));
             }
             send_msg(buf, w.len);
         }
@@ -374,6 +397,7 @@ static void panel_task(void *arg)
 esp_err_t ble_panel_start(void)
 {
     s_cmdq = xQueueCreate(4, 16);
+    s_enabled = g_settings.ble;     // yığın görevinden önce: on_sync hemen gelebilir, reklam buna bakar
     ESP_ERROR_CHECK(nimble_port_init());
     ble_hs_cfg.sync_cb = on_sync;
     ble_svc_gap_init();
@@ -384,8 +408,8 @@ esp_err_t ble_panel_start(void)
     nimble_port_freertos_init(host_task);
     xTaskCreatePinnedToCore(panel_task, "panel", 4096, NULL, 3, NULL, 0);
 
-    ESP_LOGI(TAG, "telefon paneli: Bluetooth \"%s\"", CONFIG_VEMS_BLE_NAME);
+    ESP_LOGI(TAG, "telefon paneli: Bluetooth \"%s\" %s", CONFIG_VEMS_BLE_NAME, s_enabled ? "açık" : "kapalı");
     srclog_step("bluetooth %s", CONFIG_VEMS_BLE_NAME);
-    srclog_done(SRCLOG_OK, "OK");
+    srclog_done(s_enabled ? SRCLOG_OK : SRCLOG_SKIP, s_enabled ? "OK" : "KAPALI");
     return ESP_OK;
 }

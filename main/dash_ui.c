@@ -447,6 +447,7 @@ static void page_update(int idx)
     case PG_LIST:   ui_list_update(&ui.d, ui.fresh); break;
     case PG_AFR:    ui_afr_update(&ui.d, ui.fresh); break;
     case PG_DTC:    ui_dtc_update(&ui.d, ui.fresh); break;
+    case PG_SETTINGS: ui_settings_update(); break;
     default:        break;
     }
 }

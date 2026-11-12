@@ -50,7 +50,7 @@ static int s_nreport;
 static void obd_reset(void)
 {
     sim_reset();
-    s_want = s_built_want = 0;
+    s_want = s_built_want = s_want_remote = 0;
     s_rpm_fast = s_speed_slot = s_clt_guard = false;
     s_slot = 0;
     s_nfast = s_nslow = s_fi = s_si = 0;
@@ -446,6 +446,26 @@ static void t_sched_switch_immediate(void)
     CHECK(next_pid() == PID_ADV || next_pid() == PID_ADV);
 }
 
+static void t_sched_remote_merge(void)
+{
+    // LCD tek gösterge TPS + telefonda emme öne alınmış: ikisi de hızlı listede, telefon ayrılınca sadece TPS
+    sched(KALOS_SUP0, 0, 0, CH_BIT(CH_TPS));
+    vems_set_remote_channels(CH_BIT(CH_IAT));
+    next_pid();
+    CHECK(in_lists(PID_TPS, true) && in_lists(PID_IAT, true));
+    CHECK(!s_rpm_fast);
+    vems_set_remote_channels(0);
+    next_pid();
+    CHECK(in_lists(PID_TPS, true) && !in_lists(PID_IAT, true));
+    // ekran varsayılanda (ayarlar / arıza kodu sayfası), telefon avansı öne almış: sadece o
+    vems_set_wanted_channels(0);
+    vems_set_remote_channels(CH_BIT(CH_ADV));
+    seq_run(seq, 64);
+    CHECK_EQ(s_nfast, 1);
+    CHECK(seq_count(seq, 64, PID_ADV) >= 64 * 3 / 4);
+    vems_set_remote_channels(0);
+}
+
 static void t_sched_fuel_inputs(void)
 {
     sched(KALOS_SUP0, 0, 0, CH_BIT(CH_FUEL_LH));
@@ -765,6 +785,7 @@ void test_entry(void)
     run("tek gösterge: veri isteklerin %80+'ı", t_sched_focus_single);
     run("sürüş sayfası: devir 1/2, hız 1/4, diğerleri 16'da bir", t_sched_drive);
     run("sayfa değişimi anında uygulanır", t_sched_switch_immediate);
+    run("LCD + telefon istekleri birleşir", t_sched_remote_merge);
     run("tüketim girdileri hızlı turda", t_sched_fuel_inputs);
     run("uç durumlar: boş liste, tek PID, geniş bant, tam harita", t_sched_edge);
     printf(" entegrasyon (sanal zaman, gerçek obd_task)\n");

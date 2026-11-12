@@ -7,10 +7,16 @@
 #include "sdkconfig.h"
 #include "board_lcd.h"
 #include "ui_priv.h"
+#if CONFIG_VEMS_BLE_PANEL
+#include "ble_panel.h"
+#define HAS_BLE 1
+#else
+#define HAS_BLE 0
+#endif
 
 typedef enum {
-    ID_VIEW, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_RPMMAX, ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_RESCAN, ID_RESET,
-    ID_VER, ID_COUNT
+    ID_VIEW, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_RPMMAX, ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_BLE,
+    ID_RESCAN, ID_RESET, ID_VER, ID_COUNT
 } set_id_t;
 typedef enum { T_RANGE, T_ENUM, T_ACTION, T_INFO } row_type_t;
 
@@ -32,6 +38,7 @@ static const row_def_t ROWS[ID_COUNT] = {
     [ID_CLT]    = {"Hararet uyarısı", T_RANGE, 95, 115, 1},
     [ID_BATT]   = {"Akü alt sınırı", T_RANGE, 105, 125, 1},
     [ID_BEEP]   = {"Açılış sesi",    T_ENUM},
+    [ID_BLE]    = {"Telefon (BLE)",  T_ENUM},
     [ID_RESCAN] = {"Bağlantı",       T_ACTION},
     [ID_RESET]  = {"Varsayılanlar",  T_ACTION},
     [ID_VER]    = {"Sürüm",          T_INFO},
@@ -71,6 +78,7 @@ static int get_val(set_id_t id)
     case ID_CLT:    return g_settings.clt_warn;
     case ID_BATT:   return g_settings.batt_low;
     case ID_BEEP:   return g_settings.beep;
+    case ID_BLE:    return g_settings.ble;
     default:        return 0;
     }
 }
@@ -84,6 +92,7 @@ static int enum_count(set_id_t id)
     case ID_PRESS:  return 2;
     case ID_PROTO:  return 3;
     case ID_BEEP:   return 2;
+    case ID_BLE:    return 2;
     default:        return 0;
     }
 }
@@ -103,6 +112,11 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
     case ID_CLT:    snprintf(buf, len, "%d °C", v); break;
     case ID_BATT:   snprintf(buf, len, "%d.%d V", v / 10, v % 10); break;
     case ID_BEEP:   snprintf(buf, len, "%s", v ? "Açık" : "Kapalı"); break;
+#if CONFIG_VEMS_BLE_PANEL
+    case ID_BLE:    snprintf(buf, len, "%s", !v ? "Kapalı" : ble_panel_connected() ? "Açık · bağlı" : "Açık"); break;
+#else
+    case ID_BLE:    snprintf(buf, len, "Yok"); break;
+#endif
     case ID_RESCAN: snprintf(buf, len, "Yeniden ara"); break;
     case ID_RESET:  snprintf(buf, len, "Sıfırla"); break;
     case ID_VER:    snprintf(buf, len, "v2.0 · ESP32-S3"); break;
@@ -137,6 +151,9 @@ static void commit(set_id_t id, int v)
     case ID_CLT:    g_settings.clt_warn = v; break;
     case ID_BATT:   g_settings.batt_low = v; break;
     case ID_BEEP:   g_settings.beep = v; break;
+#if CONFIG_VEMS_BLE_PANEL
+    case ID_BLE:    g_settings.ble = v; ble_panel_set_enabled(v); break;
+#endif
     default:        return;
     }
     settings_save();
@@ -301,6 +318,9 @@ static void row_cb(lv_event_t *e)
     } else if (ROWS[id].type == T_ACTION) {
         settings_reset();
         board_lcd_set_backlight(g_settings.brightness);
+#if CONFIG_VEMS_BLE_PANEL
+        ble_panel_set_enabled(g_settings.ble);
+#endif
         refresh_rows();
         ui_request_rebuild();
     } else if (ROWS[id].type != T_INFO) {
@@ -318,8 +338,8 @@ lv_obj_t *ui_settings_create(int page, int pages)
     lv_obj_t *list = ui_scroll_list(s.scr);
     for (int i = 0; i < ID_COUNT; i++) {
         s.val[i] = NULL;
-        if (i == ID_PROTO) {
-            continue;       // K-Line only: no protocol choice
+        if (i == ID_PROTO || (i == ID_BLE && !HAS_BLE)) {
+            continue;       // K-Line only: no protocol choice; Bluetooth'suz derlemede telefon satırı yok
         }
         lv_obj_t *row = ui_list_row(list, ROWS[i].name, &s.val[i]);
         if (ROWS[i].type != T_INFO) {
@@ -332,4 +352,14 @@ lv_obj_t *ui_settings_create(int page, int pages)
 
     ui_page_dots(s.scr, page, pages);
     return s.scr;
+}
+
+/** Sayfa açıkken telefonun bağlanıp ayrılması satırda görünsün. */
+void ui_settings_update(void)
+{
+    if (s.val[ID_BLE]) {
+        char buf[32];
+        val_text(ID_BLE, get_val(ID_BLE), buf, sizeof(buf));
+        ui_label_set(s.val[ID_BLE], buf);
+    }
 }

@@ -63,11 +63,12 @@ menu "K-Line OBD"
     config VEMS_BLE_PANEL
         bool "Bluetooth (BLE) telefon paneli"
         depends on BT_NIMBLE_ENABLED
-        default y if VEMS_BOARD_YD_ESP32_23
+        default y
         help
             Android Chrome, GitHub Pages'teki panel.html sayfasindan Web Bluetooth ile baglanir.
             Canli veri, acilis adimlari ve ariza kodlari telefonda gorunur. BT_NIMBLE_ENABLED gerekir
-            (sdkconfig.defaults.yd acar).
+            (sdkconfig.defaults acar). LCD kartinda ekranla birlikte kopru olarak calisir, ayarlar
+            sayfasindaki "Telefon (BLE)" satirindan acilip kapatilir.
 
     config VEMS_BLE_NAME
         string "Bluetooth cihaz adi"

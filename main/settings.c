@@ -59,6 +59,7 @@ static settings_t defaults(void)
         .beep = 0,
 #endif
         .main_view = SET_VIEW_RPM,
+        .ble = 1,
     };
     return s;
 }
@@ -70,7 +71,7 @@ static bool valid(const settings_t *s)
            s->rpm_max >= 6000 && s->rpm_max <= 10000 &&
            s->fuel < SETTINGS_FUEL_COUNT && s->pressure <= SET_PRESS_BOOST && s->proto <= SET_PROTO_KLINE &&
            s->clt_warn >= 95 && s->clt_warn <= 115 && s->batt_low >= 105 && s->batt_low <= 125 && s->beep <= 1 &&
-           s->main_view <= SET_VIEW_SPEED && s->rotation < 360;
+           s->main_view <= SET_VIEW_SPEED && s->rotation < 360 && s->ble <= 1;
 }
 
 void settings_init(void)

@@ -152,4 +152,5 @@ lv_obj_t *ui_dtc_create(int page, int pages);
 void ui_dtc_update(const vems_data_t *d, bool fresh);
 
 lv_obj_t *ui_settings_create(int page, int pages);
+void ui_settings_update(void);
 

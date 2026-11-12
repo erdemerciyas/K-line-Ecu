@@ -85,6 +85,7 @@ static uint32_t s_period_ms[PID_LAST + 1];
 static int s_nfast, s_nslow, s_fi, s_si;
 static unsigned s_slot;
 static volatile uint32_t s_want;        // ekrandaki kanallar (vems_set_wanted_channels)
+static volatile uint32_t s_want_remote; // telefonda öne alınan kanallar (vems_set_remote_channels)
 static uint32_t s_built_want;           // listelerin kurulduğu s_want
 static bool s_rpm_fast;                 // RPM her ikinci istekte (ekranda ya da want = 0)
 static bool s_speed_slot;               // hız kendi sırasında (devir + hız ekranda)
@@ -657,8 +658,9 @@ static uint32_t polled_channels(void)
 
 static uint8_t next_pid(void)
 {
-    if (s_want != s_built_want) {
-        build_poll_lists(s_want);   // sayfa / kanal değişti: yeni ekranın PID'leri hemen, tur sonu beklenmez
+    const uint32_t want = s_want | s_want_remote;   // LCD sayfası + telefonda öne alınanlar
+    if (want != s_built_want) {
+        build_poll_lists(want);     // sayfa / kanal değişti: yeni ekranın PID'leri hemen, tur sonu beklenmez
     }
     const uint32_t slot = s_slot++ % SLOT_FRAME;
     if ((s_rpm_fast && (slot & 1) == 0) || (s_nfast == 0 && s_nslow == 0)) {
@@ -1001,6 +1003,11 @@ void vems_rescan(void)
 void vems_set_wanted_channels(uint32_t mask)
 {
     s_want = mask;
+}
+
+void vems_set_remote_channels(uint32_t mask)
+{
+    s_want_remote = mask;
 }
 
 int vems_get_profile(vems_pid_info_t *out, int max)

@@ -147,6 +147,9 @@ void vems_rescan(void);
  */
 void vems_set_wanted_channels(uint32_t mask);
 
+/** Telefonda (BLE panel) öne alınan kanallar: ekranın istediklerine eklenir, 0 = yok. */
+void vems_set_remote_channels(uint32_t mask);
+
 /** Araç profilinde bir PID: ECU destekliyor, son değeri ve yenilenme aralığı. */
 typedef struct {
     uint8_t pid;

@@ -30,6 +30,10 @@ h1{font-size:17px;letter-spacing:.12em;margin:0}
 .tile span{font:700 26px/1.2 ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
 .tile small{color:var(--mut);margin-left:4px}
 .tile.warn span{color:var(--warn)}.tile.bad span{color:var(--bad)}
+.tile,.hero{cursor:pointer;user-select:none}
+.tile.pin,.hero.pin{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}
+.tile.pin b::after,.hero.pin .unit:first-child::after{content:' · HIZLI';color:var(--acc)}
+.hint{color:var(--mut);font-size:12px;margin-top:8px}
 .log{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:10px;font:13px/1.7 ui-monospace,Consolas,monospace}
 .log div{display:flex;justify-content:space-between;gap:10px}
 .s1{color:var(--ok)}.s2{color:var(--mut)}.s3{color:var(--bad)}.s0{color:var(--warn)}
@@ -60,6 +64,7 @@ h1{font-size:17px;letter-spacing:.12em;margin:0}
       <div class="bar" id="bar"><i></i></div>
     </div>
     <div class="tiles" id="tiles"></div>
+    <div class="hint">Bir kutucuğa dokun: o veri öne alınır, çok daha sık gelir. Tekrar dokun: bırakılır.</div>
     <div class="log" id="log" hidden></div>
     <div class="row"><button class="btn" id="rescan">Yeniden ara</button></div>
     <div class="meta"><span id="proto"></span><span id="stats"></span></div>
@@ -82,8 +87,17 @@ const T=[
  ['l100','TÜKETİM','L/100'],['lh','AKIŞ','L/sa'],['oil','YAĞ','°C'],['fuel','YAKIT','%']];
 const $=id=>document.getElementById(id);
 const tiles={};
+// kartın kanal numaraları (vems_proto.h vems_ch_t): öne alınan kutucuklar "want <maske>" ile bildirilir
+const CH={rpm:0,spd:1,map:2,afr:4,o2:5,clt:6,iat:7,bat:8,tps:9,load:10,adv:11,oil:12,fuel:13,stft:15,ltft:16,maf:17,
+ lh:24,l100:25,o2b:26};
+const pins=new Set();
+function sendWant(){let m=0;for(const k of pins)m|=1<<CH[k];if(m||sendWant.sent)send('want '+(m>>>0).toString(16));sendWant.sent=m!==0;}
+function pin(keys,el){const on=!keys.every(k=>pins.has(k));for(const k of keys)on?pins.add(k):pins.delete(k);
+ el.classList.toggle('pin',on);sendWant();}
 for(const [k,n,u] of T){const d=document.createElement('div');d.className='tile';d.hidden=true;
- d.innerHTML=`<b>${n}</b><span>--</span><small>${u}</small>`;$('tiles').appendChild(d);tiles[k]=d;}
+ d.innerHTML=`<b>${n}</b><span>--</span><small>${u}</small>`;$('tiles').appendChild(d);tiles[k]=d;
+ d.onclick=()=>pin([k],d);}
+document.querySelector('.hero').onclick=e=>pin(['rpm','spd'],e.currentTarget);
 const RPM_MAX=8000,RPM_SHIFT=6500;
 const ST={ok:['ECU BAĞLI','var(--ok)'],link:['PID TARANIYOR','var(--acc)'],wait:['PROTOKOL ARANIYOR','var(--warn)'],stopped:['BAŞLAMADI','var(--mut)']};
 let logLines=[],state='';
@@ -95,7 +109,7 @@ function live(j){
   $('spd').textContent=j.spd==null?'--':Math.round(j.spd);
   const r=j.rpm||0;$('bar').firstChild.style.width=Math.min(100,r/RPM_MAX*100)+'%';$('bar').classList.toggle('shift',r>=RPM_SHIFT);
   for(const [k,,,w] of T){const t=tiles[k],v=j[k];t.hidden=v==null;if(v==null)continue;
-   t.querySelector('span').textContent=v;t.className='tile '+(w?w(v):'');}
+   t.querySelector('span').textContent=v;t.className='tile '+(w?w(v):'')+(pins.has(k)?' pin':'');}
   $('proto').textContent=[j.proto,j.ecu].filter(Boolean).join(' · ');
   $('stats').textContent=(j.mil?'MIL YANIYOR · ':'')+`ok ${j.ok} · zaman aşımı ${j.to}`+(j.age!=null?` · ${j.age} ms`:'');
   drawLog();
@@ -135,6 +149,7 @@ async function attach(){
   st.addEventListener('characteristicvaluechanged',onData);
   await st.startNotifications();
   $('conn').hidden=true;
+  sendWant.sent=true;sendWant();      // yeniden bağlanınca öne alınanlar kartta da geçerli olsun
 }
 async function reconnect(){
   cmdChr=null;pill('KART YOK','var(--bad)');
@@ -150,8 +165,26 @@ async function connect(){
   }catch(e){$('cmsg').textContent='Bağlanılamadı: '+e.message;pill('BAĞLI DEĞİL','var(--mut)');}
 }
 async function send(c){if(!cmdChr)return false;try{await cmdChr.writeValue(new TextEncoder().encode(c));return true;}catch(_){return false;}}
-if(!navigator.bluetooth){$('connect').disabled=true;$('cmsg').textContent='Bu tarayıcı Bluetooth desteklemiyor. Android\'de Chrome ile aç.';}
-$('connect').onclick=connect;
+if(window.AndroidBle){
+  // Android uygulaması: BLE'yi uygulama yürütür, kartı kendisi bulur ve kopunca yeniden bağlanır
+  window.bleData=b64=>{const s=atob(b64),u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);onData({target:{value:u}});};
+  const AS={scan:['KART ARANIYOR','var(--warn)','Kart aranıyor. Kartın açık ve yakında olduğundan emin ol.'],
+    connecting:['BAĞLANIYOR','var(--acc)','Karta bağlanılıyor...'],
+    lost:['KART YOK','var(--bad)','Bağlantı koptu, yeniden aranıyor.'],
+    off:['BLUETOOTH KAPALI','var(--bad)','Telefonun Bluetooth\'unu aç.'],
+    perm:['İZİN YOK','var(--bad)','Bluetooth izni gerekli. Aşağıya dokunup izin ver.']};
+  window.bleState=s=>{
+    if(s==='connected'){rx='';dec=new TextDecoder();$('conn').hidden=true;sendWant.sent=true;sendWant();return;}
+    const a=AS[s];if(!a)return;pill(a[0],a[1]);$('conn').hidden=false;$('cmsg').textContent=a[2];
+    $('connect').hidden=s!=='perm';
+  };
+  send=async c=>AndroidBle.send(c);
+  $('connect').textContent='İzin ver';$('connect').hidden=true;$('cmsg').textContent='Kart aranıyor...';
+  $('connect').onclick=()=>AndroidBle.connect();
+}else{
+  if(!navigator.bluetooth){$('connect').disabled=true;$('cmsg').textContent='Bu tarayıcı Bluetooth desteklemiyor. Android\'de Chrome ile aç.';}
+  $('connect').onclick=connect;
+}
 
 function tab(l){$('live').hidden=!l;$('dtc').hidden=l;$('tLive').setAttribute('aria-pressed',l);$('tDtc').setAttribute('aria-pressed',!l);}
 $('tLive').onclick=()=>tab(true);$('tDtc').onclick=()=>tab(false);
@@ -161,7 +194,7 @@ $('clear').onclick=async()=>{
   if(!confirm('Arıza kodları ve motor arıza lambası silinsin mi? Motor çalışmıyorken, kontak açıkken yap.'))return;
   $('dmsg').textContent=await send('clear')?'Siliniyor...':'Karta bağlı değil.';
 };
-if('serviceWorker' in navigator)navigator.serviceWorker.register('panel-sw.js').catch(()=>{});
+if(!window.AndroidBle&&'serviceWorker' in navigator)navigator.serviceWorker.register('panel-sw.js').catch(()=>{});
 </script>
 </body>
 </html>

@@ -81,6 +81,8 @@ typedef struct {
     float fuel_rate_lh;         // PID 5E, ECU'nun bildirdiği yakıt debisi
     int8_t mil_codes;           // PID 01, kayıtlı kod sayısı, -1 = bilinmiyor
     bool mil_on;                // PID 01, arıza lambası yanıyor
+    int64_t rpm_us;             // son devir örneğinin zamanı (ECU cevabının ilk baytı), 0 = yok
+    int64_t speed_us;           // son hız örneğinin zamanı, 0 = yok
 } vems_data_t;
 
 /**

@@ -9,7 +9,7 @@
 #include "ui_priv.h"
 
 typedef enum {
-    ID_VIEW, ID_BRIGHT, ID_SHIFT, ID_RPMMAX, ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_RESCAN, ID_RESET,
+    ID_VIEW, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_RPMMAX, ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_RESCAN, ID_RESET,
     ID_VER, ID_COUNT
 } set_id_t;
 typedef enum { T_RANGE, T_ENUM, T_ACTION, T_INFO } row_type_t;
@@ -23,6 +23,7 @@ typedef struct {
 static const row_def_t ROWS[ID_COUNT] = {
     [ID_VIEW]   = {"Ana gösterge",   T_ENUM},
     [ID_BRIGHT] = {"Parlaklık",      T_RANGE, 5, 100, 5},
+    [ID_ROTATE] = {"Ekran açısı",    T_RANGE, 0, 359, 1},
     [ID_SHIFT]  = {"Vites uyarısı",  T_RANGE, 3000, 9500, 100},
     [ID_RPMMAX] = {"Devir ölçeği",   T_ENUM},
     [ID_FUEL]   = {"Yakıt",          T_ENUM},
@@ -55,6 +56,7 @@ static int get_val(set_id_t id)
     switch (id) {
     case ID_VIEW:   return g_settings.main_view;
     case ID_BRIGHT: return g_settings.brightness;
+    case ID_ROTATE: return g_settings.rotation;
     case ID_SHIFT:  return g_settings.shift_rpm;
     case ID_RPMMAX:
         for (int i = 0; i < 5; i++) {
@@ -92,6 +94,7 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
     switch (id) {
     case ID_VIEW:   snprintf(buf, len, "%s", v ? "Hız" : "Devir"); break;
     case ID_BRIGHT: snprintf(buf, len, "%d %%", v); break;
+    case ID_ROTATE: snprintf(buf, len, "%d°", v); break;
     case ID_SHIFT:  snprintf(buf, len, "%d rpm", v); break;
     case ID_RPMMAX: snprintf(buf, len, "%d rpm", RPM_MAX_OPTS[v]); break;
     case ID_FUEL:   snprintf(buf, len, "%s %.1f", SETTINGS_FUELS[v].name, SETTINGS_FUELS[v].stoich); break;
@@ -125,6 +128,7 @@ static void commit(set_id_t id, int v)
     switch (id) {
     case ID_VIEW:   g_settings.main_view = v; rebuild = true; break;
     case ID_BRIGHT: g_settings.brightness = v; board_lcd_set_backlight(v); break;
+    case ID_ROTATE: g_settings.rotation = v; dash_ui_set_rotation(v); break;
     case ID_SHIFT:  g_settings.shift_rpm = v; rebuild = true; break;
     case ID_RPMMAX: g_settings.rpm_max = RPM_MAX_OPTS[v]; rebuild = true; break;
     case ID_FUEL:   g_settings.fuel = v; rebuild = true; break;
@@ -177,6 +181,14 @@ static void step_cb(lv_event_t *e)
 {
     const int dir = (int)(intptr_t)lv_event_get_user_data(e);
     const row_def_t *r = &ROWS[s.id];
+    if (s.id == ID_ROTATE) {
+        // açı çevrilerek döner (359 -> 0), basılı tutunca 5'er derece; anında önizleme
+        const int step = lv_event_get_code(e) == LV_EVENT_LONG_PRESSED_REPEAT ? 5 : 1;
+        s.v = (s.v + dir * step + 360) % 360;
+        dash_ui_set_rotation(s.v);
+        editor_show_value();
+        return;
+    }
     s.v += dir * r->step;
     s.v = s.v < r->min ? r->min : s.v > r->max ? r->max : s.v;
     if (s.id == ID_BRIGHT) {

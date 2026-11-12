@@ -1,5 +1,17 @@
 menu "K-Line OBD"
 
+    choice VEMS_BOARD
+        prompt "Kart"
+        default VEMS_BOARD_WAVESHARE_LCD21
+        help
+            Pin varsayilanlarini ve gosterimi (kart ekrani ya da Bluetooth telefon paneli) secer.
+
+        config VEMS_BOARD_WAVESHARE_LCD21
+            bool "Waveshare ESP32-S3-Touch-LCD-2.1 (yuvarlak ekran, K-Line UART basliginda)"
+        config VEMS_BOARD_YD_ESP32_23
+            bool "YD-ESP32-23 / ESP32-S3-DevKitC-1 (ekransiz, Bluetooth telefon paneli)"
+    endchoice
+
     menu "OBD-II K-Line"
 
         config VEMS_OBD_KLINE_UART_PORT
@@ -8,16 +20,18 @@ menu "K-Line OBD"
             default 1
 
         config VEMS_OBD_KLINE_TX_GPIO
-            int "K-Line TX GPIO -> L9637D TX (UART basligi RXD / GPIO44)"
+            int "K-Line TX GPIO -> L9637D TX"
+            default 17 if VEMS_BOARD_YD_ESP32_23
             default 44
             help
-                Waveshare ESP32-S3-Touch-LCD-2.1'de disariya acik serbest pinler sadece UART basligi
-                (GPIO43/44). Baslik yazilari capraz: RXD = GPIO44 = bizim TX. GPIO44 acilista giris
-                oldugu icin K hatti bosta kalir. "UART" Type-C takiliyken kart uzerindeki anahtar bu
+                Waveshare: disariya acik serbest pinler sadece UART basligi (GPIO43/44). Baslik yazilari
+                capraz: RXD = GPIO44 = bizim TX. "UART" Type-C takiliyken kart uzerindeki anahtar bu
                 pinleri CH343'e verir: K-Line calismaz, kart "USB" Type-C'den beslenmeli.
+                YD-ESP32-23: sol siradaki GPIO17 (UART1 varsayilan TX), yazilar capraz degil.
 
         config VEMS_OBD_KLINE_RX_GPIO
-            int "K-Line RX GPIO <- L9637D RX (UART basligi TXD / GPIO43)"
+            int "K-Line RX GPIO <- L9637D RX"
+            default 18 if VEMS_BOARD_YD_ESP32_23
             default 43
 
         config VEMS_ENGINE_CC
@@ -41,9 +55,24 @@ menu "K-Line OBD"
 
     config VEMS_UI_ENABLE
         bool "Waveshare 2.1\" yuvarlak ekranda gosterge paneli"
+        depends on VEMS_BOARD_WAVESHARE_LCD21
         default y
         help
             Waveshare ESP32-S3-Touch-LCD-2.1 karti icin.
+
+    config VEMS_BLE_PANEL
+        bool "Bluetooth (BLE) telefon paneli"
+        depends on BT_NIMBLE_ENABLED
+        default y if VEMS_BOARD_YD_ESP32_23
+        help
+            Android Chrome, GitHub Pages'teki panel.html sayfasindan Web Bluetooth ile baglanir.
+            Canli veri, acilis adimlari ve ariza kodlari telefonda gorunur. BT_NIMBLE_ENABLED gerekir
+            (sdkconfig.defaults.yd acar).
+
+    config VEMS_BLE_NAME
+        string "Bluetooth cihaz adi"
+        depends on VEMS_BLE_PANEL
+        default "K-Line-OBD"
 
     config VEMS_UI_RPM_MAX
         int "Devir gostergesi maksimum (RPM)"

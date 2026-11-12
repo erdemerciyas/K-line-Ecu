@@ -9,14 +9,16 @@
  * half = previous / next value), long press resets min / max (single gauge, AFR).
  * Sürüş sayfasına dokunmak büyük değeri devir <-> hız değiştirir. Uyarılar (ui_alert.c) her sayfanın üstündedir.
  *
- * Rendering is tear-free: LVGL draws full frames straight into the hidden one of the two panel
- * frame buffers and flush swaps them at the end of the scanned-out frame.
+ * Rendering is tear-free: LVGL draws straight into the hidden one of the two panel frame buffers and
+ * flush swaps them at the end of the scanned-out frame. Direct mode: sadece değişen alanlar çizilir, takastan
+ * sonra aynı alanlar diğer buffer'a kopyalanır (bir sonraki kare güncel zeminden devam eder).
  * Screen transitions slide / fade two snapshots (the frame on the glass and the target screen
  * rendered once) instead of re-rendering both live screens every frame.
  *
  * All LVGL calls run in the LVGL task; data is pulled from vems_get_latest() by an lv_timer. Yeni çerçeve
  * gelir gelmez (UI_POLL_MS) sayfa güncellenir; ekrandaki kanallar OBD'ye bildirilir, onların PID'leri öne alınır.
  */
+#include <math.h>
 #include <string.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
@@ -38,6 +40,7 @@ static const char *TAG = "ui";
 #define SWITCH_DEBOUNCE_US  (400 * 1000)
 #define SLIDE_MS            320
 #define FADE_MS             450
+#define PERF_LOG_US         (10 * 1000 * 1000)
 
 typedef enum { PG_DRIVE, PG_FOCUS, PG_LIST, PG_AFR, PG_DTC, PG_SETTINGS, PAGE_MAX } page_type_t;
 
@@ -75,17 +78,196 @@ static struct {
 // ---------------------------------------------------------------------------
 // LVGL port
 // ---------------------------------------------------------------------------
+/** Camdaki karede bu turda çizilen alanları diğer buffer'a kopyalar, o buffer bir kare geride kalmasın. */
+static void sync_back_buffer(const lv_color_t *front)
+{
+    const lv_disp_t *disp = _lv_refr_get_disp_refreshing();
+    lv_color_t *back = (lv_color_t *)(front == ui.draw_buf.buf1 ? ui.draw_buf.buf2 : ui.draw_buf.buf1);
+    for (int i = 0; i < disp->inv_p; i++) {
+        if (disp->inv_area_joined[i]) {
+            continue;
+        }
+        const lv_area_t *a = &disp->inv_areas[i];
+        const size_t row = lv_area_get_width(a) * sizeof(lv_color_t);
+        for (lv_coord_t y = a->y1; y <= a->y2; y++) {
+            const size_t off = (size_t)y * BOARD_LCD_H_RES + a->x1;
+            memcpy(back + off, front + off, row);
+        }
+    }
+}
+
+/*
+ * Ekran açısı (0..359°). 0 iken LVGL doğrudan panel buffer'larına çizer (yukarıdaki yol).
+ * Açı varken LVGL PSRAM'deki tek bir "mantıksal" kareye çizer; flush, kirli alanların döndürülmüş
+ * sınır kutusunu panelin gizli buffer'ına en yakın komşu örneklemeyle yazar, takas eder ve aynı kutuyu
+ * diğer panel buffer'ına kopyalar. Dokunma noktası ters yönde döndürülür.
+ */
+#define ROT_TILE    32          // kutu karolar halinde işlenir: kaynak okumaları PSRAM önbelleğinde kalır
+#define ROT_CX      (((BOARD_LCD_H_RES - 1) << 16) / 2)    // Q16 merkez (piksel merkezleri)
+#define ROT_CY      (((BOARD_LCD_V_RES - 1) << 16) / 2)
+
+static struct {
+    uint16_t deg;
+    int32_t cos16, sin16;       // Q16
+    lv_color_t *render;         // açı varken LVGL'in çizdiği mantıksal kare
+    lv_color_t *glass;          // camdaki panel buffer'ı
+} rot = {.cos16 = 1 << 16};
+
+/** Mantıksal alanın camdaki (döndürülmüş) sınır kutusu, ekrana kırpılmış. */
+static void rot_bbox(const lv_area_t *a, lv_area_t *out)
+{
+    const int32_t xs[2] = {a->x1, a->x2 + 1}, ys[2] = {a->y1, a->y2 + 1};
+    int32_t x1 = INT32_MAX, y1 = INT32_MAX, x2 = INT32_MIN, y2 = INT32_MIN;
+    for (int i = 0; i < 4; i++) {
+        const int64_t dx = ((int64_t)xs[i & 1] << 16) - ROT_CX - (1 << 15);
+        const int64_t dy = ((int64_t)ys[i >> 1] << 16) - ROT_CY - (1 << 15);
+        const int32_t x = (int32_t)((dx * rot.cos16 - dy * rot.sin16) >> 32) + (ROT_CX >> 16);
+        const int32_t y = (int32_t)((dx * rot.sin16 + dy * rot.cos16) >> 32) + (ROT_CY >> 16);
+        x1 = x < x1 ? x : x1;
+        x2 = x > x2 ? x : x2;
+        y1 = y < y1 ? y : y1;
+        y2 = y > y2 ? y : y2;
+    }
+    // 2 px pay: köşe hesabındaki kesme ve en yakın komşu yuvarlaması
+    out->x1 = x1 - 2 < 0 ? 0 : x1 - 2;
+    out->y1 = y1 - 2 < 0 ? 0 : y1 - 2;
+    out->x2 = x2 + 2 >= BOARD_LCD_H_RES ? BOARD_LCD_H_RES - 1 : x2 + 2;
+    out->y2 = y2 + 2 >= BOARD_LCD_V_RES ? BOARD_LCD_V_RES - 1 : y2 + 2;
+}
+
+/** Cam koordinatındaki kutuyu mantıksal kareden örnekleyerek dst'ye yazar; kare dışı siyah. */
+static void rot_blit(lv_color_t *dst, const lv_color_t *src, const lv_area_t *b)
+{
+    for (int32_t ty = b->y1; ty <= b->y2; ty += ROT_TILE) {
+        const int32_t ty2 = LV_MIN(ty + ROT_TILE - 1, b->y2);
+        for (int32_t tx = b->x1; tx <= b->x2; tx += ROT_TILE) {
+            const int32_t tx2 = LV_MIN(tx + ROT_TILE - 1, b->x2);
+            for (int32_t y = ty; y <= ty2; y++) {
+                // ters dönüş: u = dx cos + dy sin, v = -dx sin + dy cos (+ merkez, + yarım piksel yuvarlama), Q16
+                const int64_t dx = ((int64_t)tx << 16) - ROT_CX, dy = ((int64_t)y << 16) - ROT_CY;
+                int32_t u = (int32_t)((dx * rot.cos16 + dy * rot.sin16) >> 16) + ROT_CX + (1 << 15);
+                int32_t v = (int32_t)((dy * rot.cos16 - dx * rot.sin16) >> 16) + ROT_CY + (1 << 15);
+                lv_color_t *d = dst + (size_t)y * BOARD_LCD_H_RES + tx;
+                for (int32_t x = tx; x <= tx2; x++) {
+                    const int32_t sx = u >> 16, sy = v >> 16;
+                    if ((uint32_t)sx < BOARD_LCD_H_RES && (uint32_t)sy < BOARD_LCD_V_RES) {
+                        *d = src[(size_t)sy * BOARD_LCD_H_RES + sx];
+                    } else {
+                        d->full = 0;
+                    }
+                    d++;
+                    u += rot.cos16;
+                    v -= rot.sin16;
+                }
+            }
+        }
+    }
+}
+
+static void flush_rotated(void)
+{
+    const lv_disp_t *disp = _lv_refr_get_disp_refreshing();
+    lv_color_t *fb0 = board_lcd_frame_buffer(0), *fb1 = board_lcd_frame_buffer(1);
+    lv_color_t *back = rot.glass == fb0 ? fb1 : fb0;
+    lv_area_t b;
+    for (int i = 0; i < disp->inv_p; i++) {
+        if (!disp->inv_area_joined[i]) {
+            rot_bbox(&disp->inv_areas[i], &b);
+            rot_blit(back, rot.render, &b);
+        }
+    }
+    board_lcd_present(back);
+    lv_color_t *other = rot.glass;
+    rot.glass = back;
+    // diğer panel buffer'ı bir kare geride kalmasın: aynı kutular kopyalanır
+    for (int i = 0; i < disp->inv_p; i++) {
+        if (!disp->inv_area_joined[i]) {
+            rot_bbox(&disp->inv_areas[i], &b);
+            const size_t row = lv_area_get_width(&b) * sizeof(lv_color_t);
+            for (lv_coord_t y = b.y1; y <= b.y2; y++) {
+                const size_t off = (size_t)y * BOARD_LCD_H_RES + b.x1;
+                memcpy(other + off, back + off, row);
+            }
+        }
+    }
+}
+
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map)
 {
-    // full_refresh: one call per frame with the whole screen, color_map is a panel frame buffer
-    board_lcd_present(color_map);
+    // direct mode: her kirli alan için çağrılır; karenin son alanında takas
+    if (lv_disp_flush_is_last(drv)) {
+        if (rot.deg) {
+            flush_rotated();
+        } else {
+            board_lcd_present(color_map);       // color_map bir panel frame buffer'ı
+            rot.glass = color_map;
+            sync_back_buffer(color_map);
+        }
+    }
     lv_disp_flush_ready(drv);
+}
+
+void dash_ui_set_rotation(uint16_t deg)
+{
+    deg %= 360;
+    if (deg && rot.render == NULL) {
+        rot.render = heap_caps_malloc(BOARD_LCD_H_RES * BOARD_LCD_V_RES * sizeof(lv_color_t),
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (rot.render == NULL) {
+            ESP_LOGE(TAG, "döndürme buffer'ı ayrılamadı");
+            return;
+        }
+    }
+    const float r = deg * (float)M_PI / 180.0f;
+    rot.cos16 = (int32_t)lroundf(cosf(r) * 65536.0f);
+    rot.sin16 = (int32_t)lroundf(sinf(r) * 65536.0f);
+    const bool was = rot.deg != 0;
+    rot.deg = deg;
+    if (deg && !was) {
+        lv_disp_draw_buf_init(&ui.draw_buf, rot.render, NULL, BOARD_LCD_H_RES * BOARD_LCD_V_RES);
+    } else if (!deg && was) {
+        // LVGL camda olmayan panel buffer'ından başlar
+        lv_color_t *fb0 = board_lcd_frame_buffer(0), *fb1 = board_lcd_frame_buffer(1);
+        lv_disp_draw_buf_init(&ui.draw_buf, rot.glass == fb0 ? fb1 : fb0, rot.glass, BOARD_LCD_H_RES * BOARD_LCD_V_RES);
+    }
+    if (lv_disp_get_default()) {
+        lv_obj_invalidate(lv_scr_act());        // tüm kare yeni açıyla yeniden çizilir
+        lv_obj_invalidate(lv_layer_top());
+    }
+}
+
+/** 10 sn'de bir çizim istatistiği: kare sayısı, ortalama çizim süresi ve yeniden çizilen piksel. */
+static void monitor_cb(lv_disp_drv_t *drv, uint32_t time_ms, uint32_t px)
+{
+    static int64_t t0;
+    static uint32_t frames, ms, pixels;
+    frames++;
+    ms += time_ms;
+    pixels += px;
+    const int64_t now = esp_timer_get_time();
+    if (now - t0 >= PERF_LOG_US) {
+        if (t0) {
+            ESP_LOGI(TAG, "ekran: %.1f kare/sn, kare %lu ms, %lu px (%%%lu)", frames * 1e6f / (now - t0),
+                     (unsigned long)(ms / frames), (unsigned long)(pixels / frames),
+                     (unsigned long)(pixels / frames * 100 / (BOARD_LCD_H_RES * BOARD_LCD_V_RES)));
+        }
+        t0 = now;
+        frames = ms = pixels = 0;
+    }
 }
 
 static void touch_read_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
     uint16_t x, y;
     if (board_touch_read(&x, &y)) {
+        if (rot.deg) {
+            // camdaki nokta mantıksal kareye ters dönüşle taşınır
+            const int64_t dx = ((int64_t)x << 16) - ROT_CX, dy = ((int64_t)y << 16) - ROT_CY;
+            const int32_t u = ((int32_t)((dx * rot.cos16 + dy * rot.sin16) >> 16) + ROT_CX + (1 << 15)) >> 16;
+            const int32_t v = ((int32_t)((dy * rot.cos16 - dx * rot.sin16) >> 16) + ROT_CY + (1 << 15)) >> 16;
+            x = LV_CLAMP(0, u, BOARD_LCD_H_RES - 1);
+            y = LV_CLAMP(0, v, BOARD_LCD_V_RES - 1);
+        }
         data->point.x = x;
         data->point.y = y;
         data->state = LV_INDEV_STATE_PR;
@@ -148,7 +330,8 @@ static void snapshot_free(lv_img_dsc_t *dsc)
 static lv_img_dsc_t *snapshot_front_buffer(void)
 {
     const lv_disp_draw_buf_t *db = &ui.draw_buf;
-    const void *front = (db->buf_act == db->buf1) ? db->buf2 : db->buf1;
+    // döndürülmüş modda tek (mantıksal) buffer var, camdaki kare odur
+    const void *front = db->buf2 == NULL ? db->buf1 : (db->buf_act == db->buf1) ? db->buf2 : db->buf1;
     lv_img_dsc_t *dsc = snapshot_alloc();
     if (dsc) {
         memcpy((void *)dsc->data, front, FRAME_BYTES);
@@ -383,11 +566,12 @@ static uint32_t page_channels(void)
     if (ui.in_splash || ui_busy()) {
         return 0;
     }
-    // hararet her sayfada hızlı turda (0 = varsayılan liste, o da içerir): uyarı gecikmesin
+    // hararet ekranda değilse obd.c onu kendi bekçi sırasında okur (~2 sn): uyarı gecikmez, istekler ekrandaki veriye
     switch (ui.type[ui.page]) {
     case PG_DRIVE:  return ui_main_channels() | CH_BIT(CH_CLT);
-    case PG_FOCUS:  return ui_focus_channels() | CH_BIT(CH_CLT);
-    case PG_AFR:    return CH_BIT(CH_AFR) | CH_BIT(CH_TARGET) | CH_BIT(CH_STFT) | CH_BIT(CH_CLT);
+    case PG_FOCUS:  return ui_focus_channels();
+    case PG_LIST:   return ui_list_channels();
+    case PG_AFR:    return CH_BIT(CH_AFR) | CH_BIT(CH_TARGET) | CH_BIT(CH_STFT);
     default:        return 0;
     }
 }
@@ -478,10 +662,13 @@ esp_err_t dash_ui_start(esp_lcd_panel_handle_t panel)
     ui.disp_drv.ver_res = BOARD_LCD_V_RES;
     ui.disp_drv.flush_cb = flush_cb;
     ui.disp_drv.draw_buf = &ui.draw_buf;
-    ui.disp_drv.full_refresh = 1;
+    ui.disp_drv.direct_mode = 1;
+    ui.disp_drv.monitor_cb = monitor_cb;
     ui.disp_drv.user_data = panel;
     lv_disp_t *disp = lv_disp_drv_register(&ui.disp_drv);
     lv_disp_set_bg_opa(disp, LV_OPA_TRANSP);    // every screen paints its own background
+    rot.glass = fb_front;
+    dash_ui_set_rotation(g_settings.rotation);
 
     lv_indev_drv_init(&ui.indev_drv);
     ui.indev_drv.type = LV_INDEV_TYPE_POINTER;

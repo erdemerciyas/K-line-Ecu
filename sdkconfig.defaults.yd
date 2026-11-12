@@ -1,0 +1,16 @@
+# YD-ESP32-23 (VCC-GND YD-ESP32-S3 N16R8, ESP32-S3-DevKitC-1 klonu) icin ek ayarlar.
+# sdkconfig.defaults'un ustune uygulanir; ayri build klasoru ve sdkconfig ile derle:
+#   idf.py -B build-yd -D SDKCONFIG=build-yd/sdkconfig -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.yd" build
+# Ekran yok: K-Line TX GPIO17, RX GPIO18, veriler Bluetooth (BLE) telefon panelinde.
+CONFIG_VEMS_BOARD_YD_ESP32_23=y
+
+# Bluetooth: NimBLE, sadece cevre birim (peripheral), tek telefon
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=517
+
+# BLE yigini ile uygulama 1 MB'i asabilir
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

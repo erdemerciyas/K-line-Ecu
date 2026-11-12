@@ -28,6 +28,7 @@ LV_FONT_DECLARE(ui_font_big);       // 88 px bold, digits . + - : only
 LV_FONT_DECLARE(ui_font_value);     // 34 px bold, digits . + - : only
 LV_FONT_DECLARE(ui_font_label);     // 16 px semibold, falls back to Montserrat 14 for symbols
 LV_FONT_DECLARE(ui_font_label_lg);  // 22 px bold, falls back to Montserrat 16 for symbols
+LV_FONT_DECLARE(ui_font_gear);      // 150 px bold, vites: 1-6 N R - only
 
 #define UI_TILE_W   104
 #define UI_TILE_H   58
@@ -97,9 +98,24 @@ void ui_ch_track(const vems_data_t *d, uint32_t mask);
 bool ui_ch_minmax(vems_ch_t c, float *lo, float *hi);
 void ui_ch_reset(vems_ch_t c);
 
+// ---- hareket katmanı (ui_motion.c): seyrek K-Line örneklerinden 60 fps devir / hız / vites ----
+#define UI_GEARS    5
+
+typedef struct {
+    float rpm;              // o anki tahmin, NAN = örnek yok
+    float rpm_rate;         // rpm/s
+    float speed;            // km/h, vites oturmuşsa devirden; NAN = yok
+    int gear;               // 1..UI_GEARS, 0 = boş / bilinmiyor
+} ui_motion_t;
+
+void ui_motion_reset(void);
+void ui_motion_feed(const vems_data_t *d);              // yeni çerçeve: yeni devir / hız örneği varsa filtreye
+void ui_motion_get(int64_t now, ui_motion_t *out);
+
 // ---- services of the screen manager (dash_ui.c), safe to call from widget events ----
 void ui_request_rebuild(void);          // a setting changed the page layout
 void ui_request_rescan(void);           // drop the connection, show the boot screen again
+void dash_ui_set_rotation(uint16_t deg); // ekranı 0..359° döndürür (LVGL görevinden çağrılır)
 void ui_request_dtc_page(void);         // arıza kodları sayfasına geç (uyarı şeridi)
 
 // ---- uyarılar (ui_alert.c): her sayfanın üstünde şerit / kart ve buzzer ----
@@ -109,6 +125,9 @@ void ui_alert_update(const vems_data_t *d, bool fresh, uint32_t mask);
 // ---- screens ----
 lv_obj_t *ui_splash_create(void);
 bool ui_splash_update(void);                        // true when the splash may close
+
+lv_obj_t *ui_dial_create(lv_obj_t *scr);           // sürüş kadranı (açılış ekranı için), NULL = PSRAM yok
+void ui_dial_set(float frac);                       // kadranın yanık kısmı 0..1
 
 lv_obj_t *ui_main_create(int page, int pages, uint32_t mask);
 void ui_main_update(const vems_data_t *d, bool fresh);
@@ -122,6 +141,7 @@ void ui_focus_reset(void);
 uint32_t ui_focus_channels(void);
 
 lv_obj_t *ui_list_create(int page, int pages, uint32_t mask);
+uint32_t ui_list_channels(void);
 void ui_list_update(const vems_data_t *d, bool fresh);
 
 lv_obj_t *ui_afr_create(int page, int pages);

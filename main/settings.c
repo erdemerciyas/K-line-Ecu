@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <string.h>
 #include "sdkconfig.h"
 #include "esp_log.h"
@@ -69,7 +70,7 @@ static bool valid(const settings_t *s)
            s->rpm_max >= 6000 && s->rpm_max <= 10000 &&
            s->fuel < SETTINGS_FUEL_COUNT && s->pressure <= SET_PRESS_BOOST && s->proto <= SET_PROTO_KLINE &&
            s->clt_warn >= 95 && s->clt_warn <= 115 && s->batt_low >= 105 && s->batt_low <= 125 && s->beep <= 1 &&
-           s->main_view <= SET_VIEW_SPEED;
+           s->main_view <= SET_VIEW_SPEED && s->rotation < 360;
 }
 
 void settings_init(void)
@@ -86,10 +87,12 @@ void settings_init(void)
     }
 
     nvs_handle_t h;
-    stored_t st;
+    // eski (ekran açısı alanı olmayan) kayıt da okunur: eksik kalan alanlar varsayılanla dolu kalır
+    stored_t st = {.s = g_settings};
     size_t len = sizeof(st);
+    const size_t min_len = offsetof(stored_t, s) + offsetof(settings_t, rotation);
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
-        if (nvs_get_blob(h, NVS_KEY, &st, &len) == ESP_OK && len == sizeof(st) && st.ver == SETTINGS_VER && valid(&st.s)) {
+        if (nvs_get_blob(h, NVS_KEY, &st, &len) == ESP_OK && len >= min_len && st.ver == SETTINGS_VER && valid(&st.s)) {
             g_settings = st.s;
         }
         nvs_close(h);
@@ -112,6 +115,8 @@ void settings_save(void)
 
 void settings_reset(void)
 {
+    const uint16_t rot = g_settings.rotation;   // ekran açısı kutunun montajına bağlı: sıfırlamada korunur
     g_settings = defaults();
+    g_settings.rotation = rot;
     settings_save();
 }

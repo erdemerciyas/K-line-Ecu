@@ -5,8 +5,10 @@
  * K-Line (OBD pin 7, L9637D) üzerinden algılama, bir ECU cevap verene kadar tekrarlanır: önce ISO 14230-4
  * hızlı init, sonra 5 baud init (ISO 9141-2 ya da ISO 14230-4, 2. anahtar kelimeyle ayırt edilir).
  * The first ECU answering 01 00 is polled alone, only for the PIDs it reports as supported.
- * RPM is asked every other request, the rest round robin (slow PIDs once per fast round).
+ * 16 isteklik sıra tablosu (build_poll_lists üstünde): RPM ekrandaysa her ikinci istek, hız RPM ile birlikteyse
+ * 4'te bir, hararet ekranda değilse 16'da bir, yavaş tur 16'da 1-2; sayfa değişince liste hemen yenilenir.
  * Ekranda görünen kanalların PID'leri hızlı tura alınır (vems_set_wanted_channels), kalanlar yavaş turda.
+ * Hız ekrandaysa her dördüncü istek hızdır; devir ve hız örnekleri cevabın geldiği anla damgalanır.
  *
  * Read only: OBD ECUs only talk when asked, so requests are unavoidable, but the only service ever
  * sent is 01 (show current data) plus the K-Line wake-up handshake (5 baud address, ~KW2,
@@ -84,6 +86,9 @@ static int s_nfast, s_nslow, s_fi, s_si;
 static unsigned s_slot;
 static volatile uint32_t s_want;        // ekrandaki kanallar (vems_set_wanted_channels)
 static uint32_t s_built_want;           // listelerin kurulduğu s_want
+static bool s_rpm_fast;                 // RPM her ikinci istekte (ekranda ya da want = 0)
+static bool s_speed_slot;               // hız kendi sırasında (devir + hız ekranda)
+static bool s_clt_guard;                // hararet hızlı listede değil: bekçi sırasında okunur
 static volatile uint32_t s_channels;    // CH_BIT mask of what is polled, 0 while not connected
 static volatile bool s_rescan;
 // arıza kodu isteği: ekran görevi s_dtc_req'i kurar, OBD görevi iki sorgu arasında çalıştırıp s_dtc_done'ı verir
@@ -148,6 +153,7 @@ static uint8_t sum8(const uint8_t *p, size_t n)
 #define KL_BAUD         10400
 #define KL_P2_MS        210     // first answer byte (P2max 50 ms, some ECUs are late; ELM327 ATST32 = 205 ms)
 #define KL_IDLE_MS      60      // answers end when the bus is idle > P3min (55 ms): also the gap before the next request
+#define KL_P2X_US       (5000 * 1000)   // 7F xx 78 sonrası asıl cevap için P2*max
 #define KL_P4_MS        5       // tester inter-byte time
 #define KL_ECHO_MS      10
 #define KL_W5_MS        300     // idle bus before an init
@@ -232,12 +238,17 @@ static bool kl_send(const uint8_t *p, size_t n)
     return echoed;
 }
 
+static int64_t s_rx_first_us;   // son cevabın ilk baytı: örneğin ölçüldüğü ana en yakın zaman
+
 /** Collects every answer byte until the bus is idle. */
 static size_t kl_receive(uint8_t *buf, size_t max)
 {
     size_t n = 0;
     TickType_t wait = pdMS_TO_TICKS(KL_P2_MS);
     while (n < max && uart_read_bytes(KL_PORT, &buf[n], 1, wait) == 1) {
+        if (n == 0) {
+            s_rx_first_us = esp_timer_get_time();
+        }
         n++;
         wait = pdMS_TO_TICKS(KL_IDLE_MS);
     }
@@ -348,11 +359,21 @@ static int kl_dtc(uint8_t sid, uint16_t *codes, int max)
     uart_flush_input(KL_PORT);
     kl_send(req, n);
     int nc = -1;
-    // 7F xx 78 (cevap bekleniyor) gelirse asıl cevap için tekrar dinlenir
-    for (int round = 0; round < 5 && nc < 0; round++) {
+    // 7F xx 78 (cevap bekleniyor) gelirse asıl cevap P2* (5 s) içinde gelebilir: o süre boyunca dinlenir
+    bool pending = false;
+    const int64_t t0 = esp_timer_get_time();
+    while (nc < 0 && esp_timer_get_time() - t0 < KL_P2X_US) {
         n = kl_receive(rx, sizeof(rx));
         if (n == 0) {
-            break;
+            if (!pending) {
+                break;
+            }
+            continue;
+        }
+        for (size_t k = 0; k + 2 < n; k++) {
+            if (rx[k] == 0x7F && rx[k + 1] == sid && rx[k + 2] == 0x78) {
+                pending = true;
+            }
         }
         size_t pos = 0;
         int len;
@@ -565,22 +586,45 @@ static bool fast_default(uint8_t pid)
 #define FUEL_INPUTS     (CH_BIT(CH_MAF) | CH_BIT(CH_MAP) | CH_BIT(CH_IAT) | CH_BIT(CH_SPEED) | CH_BIT(CH_AFR))
 #define FUEL_CHANNELS   (CH_BIT(CH_FUEL_LH) | CH_BIT(CH_FUEL_L100))
 
+/*
+ * 16 isteklik sıra tablosu (her istek ~140 ms):
+ *   R = RPM, S = hız, Y = yavaş tur, H = hararet bekçisi, . = ekrandaki veri (hızlı liste, sırayla)
+ *   sürüş (RPM + hız ekranda):  R . R S R Y R S R . R S R . R S    devir ~3.6/sn, hız ~1.8/sn
+ *   RPM ekranda:                R . R . R Y R . R . R . R . R .
+ *   RPM ekranda değil:          . . . . . Y . . . H . . . Y . .    tek veri ~6/sn
+ * Hararet ekranda değilse H sırasında (~2 sn'de bir) okunur: uyarı hangi sayfada olunursa olsun gecikmez.
+ */
+#define SLOT_FRAME      16
+#define SLOT_SLOW       5       // tek (RPM'e denk gelmez), 4'te 3 değil (hız sırası)
+#define SLOT_SLOW2      13      // RPM ekranda değilken ikinci yavaş sıra
+#define SLOT_CLT        9
+
 /**
- * Araç profilindeki (desteklenen + tabloda olan) her PID bir listeye girer; RPM ayrıca her ikinci istekte.
+ * Araç profilindeki (desteklenen + tabloda olan) her PID bir listeye girer.
  * want = 0: FAST_PIDS hızlı turda. want != 0: ekranda görünen kanalları besleyen PID'ler hızlı turda.
- * Diğerleri yavaş turda (hızlı turun her dönüşünde bir tane). OPF_ONCE PID'ler bağlantıda bir kez okunur.
+ * RPM ekrandaysa (ya da want = 0) her ikinci istekte, değilse yavaş turda; hız RPM ile birlikteyse kendi sırasında.
+ * Diğerleri yavaş turda. OPF_ONCE PID'ler bağlantıda bir kez okunur.
  */
 static void build_poll_lists(uint32_t want)
 {
     s_built_want = want;
     if (want & FUEL_CHANNELS) {
-        want |= FUEL_INPUTS;
+        want |= FUEL_INPUTS | CH_BIT(CH_RPM);
     }
+    s_rpm_fast = want == 0 || (want & CH_BIT(CH_RPM));
+    // devir + hız birlikte ekrandaysa (vites tahmini) hız 4 istekte bir, hızlı listeye ayrıca girmez
+    s_speed_slot = s_rpm_fast && (want & CH_BIT(CH_SPEED)) && pid_supported(PID_SPEED);
     s_nfast = s_nslow = s_fi = s_si = 0;
     const bool wideband = pid_supported(PID_O2S1_WR_V) || pid_supported(PID_O2S1_WR_I);
     for (uint8_t pid = 1; pid <= PID_LAST; pid++) {
         const obd_pid_def_t *def = obd_pid_def(pid);
-        if (pid == PID_RPM || !pid_supported(pid) || def == NULL || (def->flags & OPF_ONCE)) {
+        if (pid == PID_RPM) {
+            if (!s_rpm_fast && pid_supported(pid)) {
+                s_slow[s_nslow++] = pid;    // ekranda değil: uyarılar için arada bir tazelenir
+            }
+            continue;
+        }
+        if (!pid_supported(pid) || def == NULL || (def->flags & OPF_ONCE) || (pid == PID_SPEED && s_speed_slot)) {
             continue;
         }
         // aynı değerin ikinci kaynağı hızlı tura girmez (geniş bant varken dar bant, akım varken voltaj)
@@ -591,6 +635,7 @@ static void build_poll_lists(uint32_t want)
             s_slow[s_nslow++] = pid;
         }
     }
+    s_clt_guard = pid_supported(PID_CLT) && !memchr(s_fast, PID_CLT, s_nfast);
 }
 
 /** What the dash can show with the polled PIDs. */
@@ -612,25 +657,30 @@ static uint32_t polled_channels(void)
 
 static uint8_t next_pid(void)
 {
-    if ((s_slot++ & 1) == 0 || (s_nfast == 0 && s_nslow == 0)) {
+    if (s_want != s_built_want) {
+        build_poll_lists(s_want);   // sayfa / kanal değişti: yeni ekranın PID'leri hemen, tur sonu beklenmez
+    }
+    const uint32_t slot = s_slot++ % SLOT_FRAME;
+    if ((s_rpm_fast && (slot & 1) == 0) || (s_nfast == 0 && s_nslow == 0)) {
         return PID_RPM;
     }
-    if (s_fi < s_nfast) {
-        return s_fast[s_fi++];
+    // devirle senkron hız: vites tahmini ve gösterge için
+    if (s_speed_slot && (slot & 3) == 3) {
+        return PID_SPEED;
     }
-    if (s_want != s_built_want) {
-        build_poll_lists(s_want);   // sayfa değişti: tur sonunda yeni ekranın PID'lerine geç
-        if (s_nfast) {
-            return s_fast[s_fi++];
-        }
+    if (s_clt_guard && slot == SLOT_CLT) {
+        return PID_CLT;
     }
-    s_fi = 0;
-    if (s_nslow == 0) {
-        return s_fast[s_fi++];
+    // yavaş tur sabit oranda: istekleri ağırlıkla ekrandaki veri alır
+    if (s_nslow && (s_nfast == 0 || slot == SLOT_SLOW || (!s_rpm_fast && slot == SLOT_SLOW2))) {
+        const uint8_t pid = s_slow[s_si];
+        s_si = (s_si + 1) % s_nslow;
+        return pid;
     }
-    uint8_t pid = s_slow[s_si];
-    s_si = (s_si + 1) % s_nslow;
-    return pid;
+    if (s_fi >= s_nfast) {
+        s_fi = 0;
+    }
+    return s_fast[s_fi++];
 }
 
 static void data_reset(vems_data_t *d)
@@ -830,6 +880,11 @@ static void obd_task(void *arg)
             }
             profile_store(pid, v, n, now);
             decode(&cur, pid, v, n);
+            if (pid == PID_RPM) {
+                cur.rpm_us = s_rx_first_us;
+            } else if (pid == PID_SPEED) {
+                cur.speed_us = s_rx_first_us;
+            }
             fuel_calc(&cur);
             cur.seq = ++seq;
             cur.timestamp_us = now;
@@ -845,6 +900,7 @@ static void obd_task(void *arg)
         }
         s_kl_quiet = false;
         s_channels = 0;
+        s_state = VEMS_STATE_WAIT_LINK;     // P3max beklemesinde "hazır" görünmesin (açılış ekranı erken çıkmasın)
         if (!s_rescan) {
             ESP_LOGW(TAG, "ECU stopped answering (ignition off?), searching again");
             srclog_step("ecu cevap vermiyor");
@@ -985,7 +1041,7 @@ static int dtc_call(uint8_t sid, uint16_t *codes, int max)
     }
     xSemaphoreTake(s_dtc_done, 0);              // önceki zaman aşımından kalan sinyali at
     s_dtc_req = sid;
-    if (xSemaphoreTake(s_dtc_done, pdMS_TO_TICKS(4000)) != pdTRUE) {
+    if (xSemaphoreTake(s_dtc_done, pdMS_TO_TICKS(7000)) != pdTRUE) {     // P2* 5 s + bir PID turu
         s_dtc_req = 0;
         return -1;
     }

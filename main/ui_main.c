@@ -1,68 +1,554 @@
 /*
- * Sürüş sayfası. Dış halka yarış aracı LED şeridi gibi segment segment yanar: devirde mavi -> sarı -> kırmızı
- * bölge (vites noktasında segmentler ve çerçeve flaşlar), hızda mavi. Büyük gösterilen değer (devir ya da hız)
- * sayfaya dokunarak ya da ayarlardan seçilir, diğeri üstte küçük durur. Tepe değeri beyaz segmentte kısa süre
- * kalır. Altta kaynağın gerçekten verdiği üç kanal (şarj, tüketim, yağ, emme ...), alt boşlukta hararet yayı.
- * Üst satır sadece söylenecek bir şey varsa yazar: bağlantı yok, arıza kodu, motor soğuk.
+ * Sürüş sayfası, yarış oyunu göstergesi havasında. Dış halka devir LED'leri: maviden camgöbeğine, vites
+ * noktasına yaklaşırken sarı, sonra kırmızı. Yanan segmentin ucu beyaz parlar, devir düşünce sönen segmentler
+ * kısa bir iz bırakır, tepe değeri beyaz segmentte bir süre kalır. Üstünde turuncu bıçak ibre yay fiziğiyle
+ * oturur (hafif aşma), hızlı dönüşte arkasında iz kalır. Ortada vites (hız / devir oranından), altında büyük
+ * değer (hız ya da devir, dokununca değişir) ve küçük olanı. Üstteki 7 ışık vites noktasına yaklaşırken
+ * yeşil -> sarı -> kırmızı dolar, noktada hepsi mavi flaş yapar, halka ve kenar da yanıp söner.
+ * Motor soğukken izin verilen devrin üstü buz mavisi, vites ışıkları o sınıra göre yanar.
+ * Rozet satırı: bağlantı / arıza durumu, MÜKEMMEL / GEÇ / ERKEN VİTES, 0-100 süresi, YAKIT KESİK, MOTOR SOĞUK.
+ * Ekran ilk açıldığında ve ECU bağlanınca ibre bir tur atar.
+ *
+ * Performans: kadran (segmentler, çentikler, çerçeve, parıltı) bir kez iki görüntüye pişirilir, sönük ve yanık
+ * hali. Karelerde sadece değişen açı aralığı yeniden çizilir; yanık segmentler yanık görüntünün açı maskesiyle
+ * kopyalanmasıdır. Devir / hız ui_motion'dan her karede (16 ms) gelir.
  */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "sdkconfig.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "board_lcd.h"
 #include "ui_priv.h"
 
-#define POD_MAX         3
-#define POD_DX          104         // kanal sütunları arası
-#define SPEED_MAX       200
-#define SEG_LEN         26
+#define SCR_W           BOARD_LCD_H_RES
+#define SCR_H           BOARD_LCD_V_RES
+#define CX              (SCR_W / 2)
+#define CY              (SCR_H / 2)
+#define DEG             0.017453293f
+
+// kadran geometrisi: 270° tarama, sol alttan (135°) saat yönünde
+#define A0              135.0f
+#define SPAN            270.0f
+#define R_LED_IN        206
+#define R_LED_OUT       230
+#define R_TICK_MAJ      188
+#define R_TICK_MIN      194
+#define R_TICK_OUT      201
+#define R_BEZEL         233.5f
+#define R_NUM           172
+#define R_NDL_IN        142
+#define R_NDL_OUT       234
+#define R_BAKE_MIN      138         // bunun içi düz siyah
+#define SEG_RPM         250
+#define SEG_GAP_PX      6.0f
+
+#define FRAME_MS        16
+#define GHOSTS          5           // ibre izi: son 5 karenin açısı
+#define SPRING_W        26.0f       // ibre yayı: doğal frekans (rad/s) ve sönüm
+#define SPRING_Z        0.62f
+#define SPRING_STEP     0.002f      // s, integrasyon adımı
 #define PEAK_HOLD_US    (1200 * 1000)
-#define CLT_LO          40          // hararet yayı aralığı
+#define PEAK_DROP       3000.0f     // rpm/s
+#define TRAIL_HOLD_US   (90 * 1000)
+#define TRAIL_DROP      7000.0f     // rpm/s, sönen segmentlerin izi
+#define SHIFT_LEAD      1200        // vites ışıkları bu kadar devir önce başlar
+#define SHIFT_DOTS      7
+#define BLINK_US        60000       // vites flaşı ~8 Hz
+#define SWEEP_US        (1300 * 1000)
+#define BADGE_US        (1800 * 1000)
+#define RESULT_US       (8000 * 1000)
+#define RUN_MAX_US      (40 * 1000 * 1000)
+#define REV_WINDOW_US   (1500 * 1000)
+#define WOT_KPA         85          // MAP bunun üstü: tam gaz
+#define CUT_KPA         32          // gaz kapalı, yüksek vakum: yakıt kesik
+#define CLT_COLD        60
+#define CLT_LO          40
 #define CLT_HI          130
-#define CLT_COLD        60          // altı "motor soğuk"
+#define POD_MAX         2
+#define POD_DX          60
 
-#define C_SEG_OFF       lv_color_hex(0x181B22)
-#define C_SEG_RED       lv_color_hex(0x3A1416)  // yanmayan kırmızı bölge
-#define C_SEG_LO        lv_color_hex(0x1E5BFF)
-#define C_SEG_HI        lv_color_hex(0x35E0FF)
+#define C_SEG_FROZEN    lv_color_hex(0x0F3C52)
+#define C_NEEDLE        lv_color_hex(0xFF5418)
+#define C_NEEDLE_CORE   lv_color_hex(0xFFD2B8)
+#define C_FLASH         lv_color_hex(0x4FB4FF)
+#define C_DOT_OFF       lv_color_hex(0x1A1D24)
 
-enum { LIT_N, LIT_W, LIT_R, LIT_COUNT };
+// ---------------------------------------------------------------------------
+// Pişirilmiş kadran (PSRAM), ayarlar değişmedikçe sayfa yeniden kurulsa da korunur
+// ---------------------------------------------------------------------------
+static struct {
+    lv_img_dsc_t off;
+    lv_img_dsc_t lit;
+    int rpm_max;
+    int shift;
+} bake;
+
+typedef struct {
+    float r, g, b;
+} rgbf_t;
+
+static inline float clamp01(float x)
+{
+    return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
+static rgbf_t hexf(uint32_t h)
+{
+    return (rgbf_t){((h >> 16) & 0xFF) / 255.0f, ((h >> 8) & 0xFF) / 255.0f, (h & 0xFF) / 255.0f};
+}
+
+static rgbf_t mixf(rgbf_t a, rgbf_t b, float t)
+{
+    return (rgbf_t){a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t};
+}
+
+static rgbf_t scalef(rgbf_t a, float k)
+{
+    return (rgbf_t){a.r * k, a.g * k, a.b * k};
+}
+
+static lv_color_t to_color(rgbf_t c)
+{
+    return lv_color_make((uint8_t)(clamp01(c.r) * 255), (uint8_t)(clamp01(c.g) * 255), (uint8_t)(clamp01(c.b) * 255));
+}
+
+/** Segment rengi, segmentin başladığı devre göre. */
+static rgbf_t seg_rgb(int rpm, bool lit)
+{
+    const int warn = bake.shift - SHIFT_LEAD;
+    if (!lit) {
+        return hexf(rpm >= bake.shift ? 0x3A1216 : 0x171B23);
+    }
+    if (rpm >= bake.shift) {
+        return hexf(0xFF2A2A);
+    }
+    if (rpm >= warn) {
+        return mixf(hexf(0xFFC21A), hexf(0xFF6A10), (rpm - warn) / (float)SHIFT_LEAD);
+    }
+    return mixf(hexf(0x1444FF), hexf(0x26D9FF), clamp01(rpm / (float)warn));
+}
+
+static bool bake_alloc(lv_img_dsc_t *d)
+{
+    if (d->data == NULL) {
+        void *px = heap_caps_malloc(SCR_W * SCR_H * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (px == NULL) {
+            return false;
+        }
+        d->header.cf = LV_IMG_CF_TRUE_COLOR;
+        d->header.w = SCR_W;
+        d->header.h = SCR_H;
+        d->data_size = SCR_W * SCR_H * sizeof(lv_color_t);
+        d->data = px;
+    }
+    return true;
+}
+
+/** Kadranı sönük ve yanık iki görüntüye çizer (piksel piksel, bir kez). */
+static bool bake_dial(int rpm_max, int shift)
+{
+    if (bake.rpm_max == rpm_max && bake.shift == shift) {
+        return true;
+    }
+    if (!bake_alloc(&bake.off) || !bake_alloc(&bake.lit)) {
+        return false;
+    }
+    bake.rpm_max = rpm_max;
+    bake.shift = shift;
+    lv_color_t *off = (lv_color_t *)bake.off.data;
+    lv_color_t *lit = (lv_color_t *)bake.lit.data;
+    const float deg_per_rpm = SPAN / rpm_max;
+    const int nseg = rpm_max / SEG_RPM;
+    const rgbf_t black = {0, 0, 0};
+    const rgbf_t white = {1, 1, 1};
+    const float r_mid = (R_LED_IN + R_LED_OUT) / 2.0f;
+    const float half = (R_LED_OUT - R_LED_IN) / 2.0f;
+
+    for (int y = 0; y < SCR_H; y++) {
+        for (int x = 0; x < SCR_W; x++) {
+            const int i = y * SCR_W + x;
+            const float dx = x + 0.5f - CX, dy = y + 0.5f - CY;
+            const float r2 = dx * dx + dy * dy;
+            if (r2 < R_BAKE_MIN * R_BAKE_MIN) {
+                off[i] = lit[i] = lv_color_black();
+                continue;
+            }
+            const float r = sqrtf(r2);
+            float th = atan2f(dy, dx) / DEG;
+            th = th < 0 ? th + 360 : th;
+            float u = th - A0;                      // taramadaki açı: 0..270, ötesi alttaki boşluk
+            u = u < 0 ? u + 360 : u;
+
+            // zemin kenara doğru hafif lacivert-siyah, çerçeve sol üstten ışık alan ince halka
+            rgbf_t base = mixf(black, hexf(0x090C14), clamp01((r - R_BAKE_MIN) / 100));
+            const float bez = clamp01(r - R_BEZEL);
+            if (bez > 0) {
+                const float light = 0.35f + 0.65f * (0.5f + 0.5f * cosf((th - 235) * DEG));
+                base = mixf(base, scalef(hexf(0x3A414E), light), bez);
+            }
+            rgbf_t o = base, l = base;
+
+            if (u <= SPAN + 3) {
+                const float rpm_u = u / deg_per_rpm;
+                const float arc_px = deg_per_rpm * DEG * r;     // 1 rpm'in yay boyu
+
+                // çentikler: 1000'lerde uzun, 500'lerde kısa; kırmızı bölgede kırmızı
+                const float tick = roundf(rpm_u / 500) * 500;
+                const bool major = ((int)tick % 1000) == 0;
+                const float tw = major ? 1.7f : 1.0f;
+                float tc = clamp01(tw + 0.5f - fabsf(rpm_u - tick) * arc_px) *
+                           clamp01(r - (major ? R_TICK_MAJ : R_TICK_MIN) + 0.5f) * clamp01(R_TICK_OUT - r + 0.5f);
+                if (tick > rpm_max) {
+                    tc = 0;
+                }
+                if (tc > 0) {
+                    const rgbf_t col = hexf(tick >= shift ? (major ? 0xD04040 : 0x6E2626)
+                                                          : (major ? 0x9AA1AE : 0x434956));
+                    o = mixf(o, col, tc);
+                    l = mixf(l, col, tc);
+                }
+
+                // LED segmentleri: aralıklar her yarıçapta aynı piksel genişliğinde
+                int seg = (int)(rpm_u / SEG_RPM);
+                seg = seg >= nseg ? nseg - 1 : seg;
+                const float in_seg = (rpm_u - seg * SEG_RPM) * arc_px;
+                const float seg_px = SEG_RPM * arc_px;
+                const float cov_a = clamp01(fminf(in_seg, seg_px - in_seg) - SEG_GAP_PX / 2 + 0.5f);
+                const float cov_r = clamp01(r - R_LED_IN + 0.5f) * clamp01(R_LED_OUT - r + 0.5f);
+                const float cov = u <= SPAN ? cov_a * cov_r : 0;
+                const int seg_rpm = seg * SEG_RPM;
+                if (cov > 0) {
+                    const float bevel = 0.8f + 0.4f * (r - R_LED_IN) / (R_LED_OUT - R_LED_IN);
+                    o = mixf(o, scalef(seg_rgb(seg_rpm, false), bevel), cov);
+                    const float mid = clamp01(1 - fabsf(r - r_mid) / half);
+                    rgbf_t lc = mixf(seg_rgb(seg_rpm, true), white, 0.45f * mid * mid * mid);    // sıcak çekirdek
+                    l = mixf(l, scalef(lc, 0.72f + 0.28f * mid), cov);
+                }
+
+                // parıltı: yanık segmentten banda dışına ve aralıklara taşan ışık, tarama uçlarında söner
+                const float dr = r < R_LED_IN ? R_LED_IN - r : r > R_LED_OUT ? r - R_LED_OUT : 0;
+                const float ends = clamp01(u * DEG * r / 6) * clamp01((SPAN - u) * DEG * r / 6 + 0.3f);
+                const float glow = 0.5f * expf(-dr / 6.0f) * (1 - cov) * ends;
+                if (glow > 0.004f) {
+                    const rgbf_t g = scalef(seg_rgb(seg_rpm, true), glow);
+                    l = (rgbf_t){l.r + g.r, l.g + g.g, l.b + g.b};
+                }
+            }
+            off[i] = to_color(o);
+            lit[i] = to_color(l);
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Sayfa durumu
+// ---------------------------------------------------------------------------
+enum { RUN_IDLE, RUN_ARMED, RUN_ON };
+
+typedef struct {
+    int lit;            // yanan segment sayısı
+    int trail;          // iz dahil
+    int peak;           // tepe segmenti, -1 = yok
+    int frozen;         // soğuk motor sınırının ilk segmenti, nseg = yok
+    lv_opa_t head;      // uç segment parlaklığı
+    bool flash;
+    bool vign;
+    float ang[GHOSTS + 1];  // [0] = ibre, sonrakiler iz
+} ring_state_t;
 
 static struct {
-    lv_obj_t *meter;
-    lv_meter_indicator_t *red_off;
-    lv_meter_indicator_t *lit[LIT_COUNT];
-    lv_meter_indicator_t *peak;
-    int max, step, warn, red;   // ölçek biriminde: devirde 100 rpm, hızda km/h
-    int peak_v;
-    int64_t peak_t;
-    lv_obj_t *shift;            // vites noktasında yanıp sönen çerçeve
+    lv_obj_t *scr;
+    lv_obj_t *ring;
+    lv_obj_t *needle;
+    lv_obj_t *dots[SHIFT_DOTS];
     lv_obj_t *status;
-    lv_obj_t *sec_val;
-    lv_obj_t *sec_unit;
+    lv_obj_t *gear;
     lv_obj_t *val;
     lv_obj_t *unit;
+    lv_obj_t *sec_val;
+    lv_obj_t *sec_unit;
     lv_obj_t *pod_cap[POD_MAX];
     lv_obj_t *pod_val[POD_MAX];
     vems_ch_t pod_ch[POD_MAX];
     int npods;
     lv_obj_t *clt_arc;
-    lv_obj_t *clt_val;
+    lv_obj_t *load_arc;
     lv_color_t clt_color;
-    bool speed_view;
+    lv_color_t load_color;
     bool has_speed;
     bool has_clt;
+    bool has_map;
     bool has_lh;
+    bool speed_view;
+    bool baked;
+
+    int rpm_max;
+    int shift;
+    int nseg;
+    ring_state_t st;    // çizilen
+    ring_state_t nx;    // bu karede hesaplanan
+
+    // ibre ve halka dinamiği (devir biriminde)
+    float pos;
+    float vel;
+    float trail_v;
+    int64_t trail_t;
+    float peak_v;
+    int64_t peak_t;
+    float hist[GHOSTS];
+    int64_t last_us;
+    int64_t sweep_t0;   // 0 = tur atılmadı, -1 = bitti
+
+    // veri (ui_main_update)
+    bool fresh;
+    float clt;
+    float map;
+    bool mil_on;
+    int mil_codes;
+    bool cut;
+    int64_t wot_t;
+
+    // vites ve rozetler
+    int gear_shown;
+    int64_t gear_t;
+    float rev_max;
+    int64_t rev_t;
+    const char *badge;
+    lv_color_t badge_col;
+    int64_t badge_t;
+    char result[32];
+    int64_t result_t;
+    int run;
+    int64_t run_t0;
+    char last_val[16];
+    char last_sec[16];
 } m;
 
+static float rpm_ang(float rpm)
+{
+    // pişirilmiş kadranın ölçeği (sürüş sayfası ve açılış ekranı ortak), pişirilemediyse ayardaki
+    return A0 + SPAN * rpm / (bake.rpm_max ? bake.rpm_max : m.rpm_max);
+}
+
+/** Halkanın [a0, a1] derece aralığının, rin..rout yarıçaplı kısmının sınır kutusu. */
+static void sector_area(float a0, float a1, int rin, int rout, lv_area_t *out)
+{
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    float angs[8];
+    int n = 0;
+    angs[n++] = a0;
+    angs[n++] = a1;
+    for (int k = (int)ceilf(a0 / 90); k * 90 < a1 && n < 8; k++) {
+        angs[n++] = k * 90.0f;
+    }
+    for (int i = 0; i < n; i++) {
+        const float c = cosf(angs[i] * DEG), s = sinf(angs[i] * DEG);
+        const int rs[2] = {rin, rout};
+        for (int j = 0; j < 2; j++) {
+            const float x = CX + c * rs[j], y = CY + s * rs[j];
+            x0 = fminf(x0, x);
+            x1 = fmaxf(x1, x);
+            y0 = fminf(y0, y);
+            y1 = fmaxf(y1, y);
+        }
+    }
+    out->x1 = LV_MAX(0, (lv_coord_t)x0 - 3);
+    out->y1 = LV_MAX(0, (lv_coord_t)y0 - 3);
+    out->x2 = LV_MIN(SCR_W - 1, (lv_coord_t)x1 + 3);
+    out->y2 = LV_MIN(SCR_H - 1, (lv_coord_t)y1 + 3);
+}
+
+// ---------------------------------------------------------------------------
+// Çizim
+// ---------------------------------------------------------------------------
+/** Yanık görüntünün [seg_a, seg_b) segment aralığı, açı maskesiyle. */
+static void draw_lit(lv_draw_ctx_t *ctx, int seg_a, int seg_b, lv_opa_t opa)
+{
+    if (seg_b <= seg_a || bake.rpm_max == 0) {
+        return;
+    }
+    const float a0 = rpm_ang(seg_a * SEG_RPM), a1 = rpm_ang(seg_b * SEG_RPM);
+    lv_area_t sec, clip;
+    sector_area(a0, a1, R_TICK_MAJ - 10, CX, &sec);
+    if (!_lv_area_intersect(&clip, ctx->clip_area, &sec)) {
+        return;
+    }
+    // açı sınırları segment aralarının ortasında: tam sayı dereceye yuvarlama aralıkta kalır
+    lv_draw_mask_angle_param_t ap;
+    lv_draw_mask_angle_init(&ap, CX, CY, (lv_coord_t)lroundf(a0) % 360, (lv_coord_t)lroundf(a1) % 360);
+    const int16_t id = lv_draw_mask_add(&ap, NULL);
+    const lv_area_t *old = ctx->clip_area;
+    ctx->clip_area = &clip;
+    lv_draw_img_dsc_t dsc;
+    lv_draw_img_dsc_init(&dsc);
+    dsc.opa = opa;
+    const lv_area_t full = {0, 0, SCR_W - 1, SCR_H - 1};
+    lv_draw_img(ctx, &dsc, &full, &bake.lit);
+    ctx->clip_area = old;
+    lv_draw_mask_free_param(&ap);
+    lv_draw_mask_remove_id(id);
+}
+
+#define SEG_FILL        (R_LED_OUT - R_LED_IN - 4)
+
+/** Tek segmentin içine (kenarlardan biraz içeride, dış kenardan w kalınlıkta) renk: uç, tepe, flaş, soğuk bölge. */
+static void draw_seg(lv_draw_ctx_t *ctx, int seg, lv_color_t col, lv_opa_t opa, int w)
+{
+    const float r = R_LED_OUT - 2;
+    const float inset = (SEG_GAP_PX / 2 + 1.5f) / ((R_LED_IN + R_LED_OUT) / 2.0f) / DEG;
+    const int a = (int)ceilf(rpm_ang(seg * SEG_RPM) + inset);
+    const int b = (int)floorf(rpm_ang((seg + 1) * SEG_RPM) - inset);
+    if (b <= a) {
+        return;
+    }
+    lv_draw_arc_dsc_t d;
+    lv_draw_arc_dsc_init(&d);
+    d.color = col;
+    d.opa = opa;
+    d.width = w;
+    const lv_point_t c = {CX, CY};
+    lv_draw_arc(ctx, &d, &c, (uint16_t)r, (uint16_t)(a % 360), (uint16_t)(b % 360));
+}
+
+static void ring_draw_cb(lv_event_t *e)
+{
+    lv_draw_ctx_t *ctx = lv_event_get_draw_ctx(e);
+    const ring_state_t *s = &m.st;
+    for (int i = s->frozen; i < m.nseg; i++) {
+        if (i >= s->trail) {
+            draw_seg(ctx, i, C_SEG_FROZEN, LV_OPA_COVER, SEG_FILL);
+        }
+    }
+    draw_lit(ctx, 0, s->lit, LV_OPA_COVER);
+    draw_lit(ctx, s->lit, s->trail, LV_OPA_40);
+    if (s->flash) {
+        for (int i = 0; i < s->lit; i++) {
+            draw_seg(ctx, i, C_FLASH, LV_OPA_90, SEG_FILL);
+        }
+    } else if (s->lit > 0 && s->head) {
+        draw_seg(ctx, s->lit - 1, lv_color_white(), s->head, SEG_FILL);
+    }
+    if (s->peak >= s->lit) {
+        draw_seg(ctx, s->peak, lv_color_white(), LV_OPA_COVER, 6);     // tepe: dış kenarda ince çizgi
+    }
+    if (s->vign) {
+        lv_draw_arc_dsc_t d;
+        lv_draw_arc_dsc_init(&d);
+        const lv_point_t c = {CX, CY};
+        d.color = C_ALERT;
+        d.width = 7;
+        lv_draw_arc(ctx, &d, &c, CX, 0, 360);
+        d.width = 16;
+        d.opa = LV_OPA_40;
+        lv_draw_arc(ctx, &d, &c, CX - 6, 0, 360);
+    }
+}
+
+static void needle_points(float ang, lv_point_t p[4])
+{
+    const float c = cosf(ang * DEG), s = sinf(ang * DEG);
+    const float w0 = 5.0f, w1 = 1.6f;
+    p[0] = (lv_point_t){(lv_coord_t)lroundf(CX + c * R_NDL_IN - s * w0), (lv_coord_t)lroundf(CY + s * R_NDL_IN + c * w0)};
+    p[1] = (lv_point_t){(lv_coord_t)lroundf(CX + c * R_NDL_OUT - s * w1), (lv_coord_t)lroundf(CY + s * R_NDL_OUT + c * w1)};
+    p[2] = (lv_point_t){(lv_coord_t)lroundf(CX + c * R_NDL_OUT + s * w1), (lv_coord_t)lroundf(CY + s * R_NDL_OUT - c * w1)};
+    p[3] = (lv_point_t){(lv_coord_t)lroundf(CX + c * R_NDL_IN + s * w0), (lv_coord_t)lroundf(CY + s * R_NDL_IN - c * w0)};
+}
+
+static void needle_draw_cb(lv_event_t *e)
+{
+    static const lv_opa_t GHOST_OPA[GHOSTS] = {110, 70, 42, 24, 12};
+    lv_draw_ctx_t *ctx = lv_event_get_draw_ctx(e);
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_color = C_NEEDLE;
+    lv_point_t p[4];
+    for (int i = GHOSTS; i >= 1; i--) {
+        if (fabsf(m.st.ang[i] - m.st.ang[0]) > 0.4f) {
+            d.bg_opa = GHOST_OPA[i - 1];
+            needle_points(m.st.ang[i], p);
+            lv_draw_polygon(ctx, &d, p, 4);
+        }
+    }
+    d.bg_opa = LV_OPA_COVER;
+    needle_points(m.st.ang[0], p);
+    lv_draw_polygon(ctx, &d, p, 4);
+
+    lv_draw_line_dsc_t l;
+    lv_draw_line_dsc_init(&l);
+    l.color = C_NEEDLE_CORE;
+    l.width = 2;
+    const float c = cosf(m.st.ang[0] * DEG), s = sinf(m.st.ang[0] * DEG);
+    const lv_point_t a = {(lv_coord_t)lroundf(CX + c * (R_NDL_IN + 30)), (lv_coord_t)lroundf(CY + s * (R_NDL_IN + 30))};
+    const lv_point_t b = {(lv_coord_t)lroundf(CX + c * (R_NDL_OUT - 3)), (lv_coord_t)lroundf(CY + s * (R_NDL_OUT - 3))};
+    lv_draw_line(ctx, &l, &a, &b);
+}
+
+/** Değişen açı aralığını geçersiz kılar, sadece o kısım yeniden çizilir. */
+static void ring_commit(void)
+{
+    const ring_state_t *o = &m.st, *n = &m.nx;
+    float lo = 1e9f, hi = -1e9f;
+#define TOUCH_SEG(a, b) do { if ((b) > (a)) { lo = fminf(lo, rpm_ang((a) * SEG_RPM)); \
+                                              hi = fmaxf(hi, rpm_ang((b) * SEG_RPM)); } } while (0)
+    if (o->lit != n->lit) {
+        TOUCH_SEG(LV_MIN(o->lit, n->lit) - 1, LV_MAX(o->lit, n->lit));     // eski / yeni uç segment dahil
+    }
+    if (o->trail != n->trail) {
+        TOUCH_SEG(LV_MIN(o->trail, n->trail), LV_MAX(o->trail, n->trail));
+    }
+    if (o->head != n->head) {
+        TOUCH_SEG(n->lit - 1, n->lit);
+    }
+    if (o->peak != n->peak) {
+        if (o->peak >= 0) {
+            TOUCH_SEG(o->peak, o->peak + 1);
+        }
+        if (n->peak >= 0) {
+            TOUCH_SEG(n->peak, n->peak + 1);
+        }
+    }
+    if (o->flash != n->flash) {
+        TOUCH_SEG(0, LV_MAX(o->lit, n->lit));
+    }
+    if (o->frozen != n->frozen) {
+        TOUCH_SEG(LV_MIN(o->frozen, n->frozen), m.nseg);
+    }
+#undef TOUCH_SEG
+    bool moved = false;
+    for (int i = 0; i <= GHOSTS; i++) {
+        moved |= fabsf(o->ang[i] - n->ang[i]) > 0.05f;
+    }
+    if (moved) {
+        for (int i = 0; i <= GHOSTS; i++) {
+            lo = fminf(lo, fminf(o->ang[i], n->ang[i]) - 2);
+            hi = fmaxf(hi, fmaxf(o->ang[i], n->ang[i]) + 2);
+        }
+    }
+    if (o->vign != n->vign) {
+        lv_obj_invalidate(m.scr);
+    } else if (hi > lo) {
+        lv_area_t a;
+        sector_area(lo, hi, R_NDL_IN - 8, CX, &a);
+        lv_obj_invalidate_area(m.ring, &a);
+    }
+    m.st = m.nx;
+}
+
+// ---------------------------------------------------------------------------
+// Kurulum
+// ---------------------------------------------------------------------------
 static void pick_channels(uint32_t mask)
 {
     mask = ui_ch_layout_mask(mask);
-    const vems_ch_t pressure = g_settings.pressure == SET_PRESS_BOOST ? CH_BOOST : CH_MAP;
-    // sürücüyü ilgilendirenler önce; basınç, karışım ve diğerleri yer kalırsa
-    const vems_ch_t prio[] = {CH_BATT, CH_FUEL_L100, CH_FUEL_LH, CH_OIL, CH_FUEL, CH_IAT, pressure, CH_AFR, CH_TPS,
-                              CH_LOAD, CH_ADV};
+    m.has_speed = mask & CH_BIT(CH_SPEED);
+    m.has_clt = mask & CH_BIT(CH_CLT);
+    m.has_map = mask & CH_BIT(CH_MAP);
+    m.has_lh = mask & CH_BIT(CH_FUEL_LH);
+    // solda hararet, sağda sürücüyü en çok ilgilendiren
+    const vems_ch_t prio[] = {CH_CLT, CH_FUEL_L100, CH_BATT, CH_FUEL_LH, CH_OIL, CH_IAT, CH_FUEL, CH_TPS, CH_LOAD,
+                              CH_ADV};
     m.npods = 0;
     for (size_t i = 0; i < sizeof(prio) / sizeof(prio[0]) && m.npods < POD_MAX; i++) {
         const vems_ch_t c = prio[i];
@@ -71,14 +557,12 @@ static void pick_channels(uint32_t mask)
         }
         m.pod_ch[m.npods++] = c;
     }
-    m.has_speed = mask & CH_BIT(CH_SPEED);
-    m.has_clt = mask & CH_BIT(CH_CLT);
-    m.has_lh = mask & CH_BIT(CH_FUEL_LH);
 }
 
 uint32_t ui_main_channels(void)
 {
-    uint32_t want = CH_BIT(CH_RPM) | (m.has_speed ? CH_BIT(CH_SPEED) : 0) | (m.has_clt ? CH_BIT(CH_CLT) : 0);
+    uint32_t want = CH_BIT(CH_RPM) | (m.has_speed ? CH_BIT(CH_SPEED) : 0) | (m.has_clt ? CH_BIT(CH_CLT) : 0) |
+                    (m.has_map ? CH_BIT(CH_MAP) : 0);
     for (int i = 0; i < m.npods; i++) {
         want |= CH_BIT(m.pod_ch[i]);
     }
@@ -97,7 +581,8 @@ bool ui_main_toggle_view(void)
 }
 
 /** Ortalanmış "değer birim" satırı, yazı değişince kendiliğinden ortada kalır. */
-static void value_row(lv_obj_t *scr, int y, const lv_font_t *font, lv_obj_t **val, lv_obj_t **unit, const char *u)
+static void value_row(lv_obj_t *scr, int y, const lv_font_t *font, const lv_font_t *ufont, lv_obj_t **val,
+                      lv_obj_t **unit, const char *u)
 {
     lv_obj_t *row = lv_obj_create(scr);
     lv_obj_remove_style_all(row);
@@ -108,8 +593,9 @@ static void value_row(lv_obj_t *scr, int y, const lv_font_t *font, lv_obj_t **va
     lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(row, LV_ALIGN_TOP_MID, 0, y);
     *val = ui_label(row, font, C_MUTED, "--");
-    *unit = ui_label(row, &ui_font_label, C_MUTED, u);
+    *unit = ui_label(row, ufont, C_MUTED, u);
     lv_obj_set_style_text_letter_space(*unit, 2, 0);
+    lv_obj_set_style_pad_bottom(*unit, font == &ui_font_big ? 8 : 2, 0);
 }
 
 static const char *pod_caption(vems_ch_t c, char *buf, size_t len)
@@ -123,219 +609,487 @@ static const char *pod_caption(vems_ch_t c, char *buf, size_t len)
     return buf;
 }
 
+static lv_obj_t *gap_arc(lv_obj_t *scr, int a0, int a1, bool reverse)
+{
+    lv_obj_t *arc = lv_arc_create(scr);
+    lv_obj_set_size(arc, 2 * 216, 2 * 216);
+    lv_obj_center(arc);
+    lv_obj_set_style_pad_all(arc, 0, 0);
+    lv_arc_set_mode(arc, reverse ? LV_ARC_MODE_REVERSE : LV_ARC_MODE_NORMAL);
+    lv_arc_set_bg_angles(arc, a0, a1);
+    lv_arc_set_range(arc, 0, 1000);
+    lv_arc_set_value(arc, 0);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_width(arc, 8, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, C_TRACK, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 8, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, C_OK, LV_PART_INDICATOR);
+    return arc;
+}
+
+static void frame(bool force);
+
+static void timer_cb(lv_timer_t *t)
+{
+    frame(false);
+}
+
+static void scr_delete_cb(lv_event_t *e)
+{
+    lv_timer_del(lv_event_get_user_data(e));
+}
+
+static lv_obj_t *layer_obj(lv_obj_t *scr, lv_event_cb_t cb)
+{
+    lv_obj_t *o = lv_obj_create(scr);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, SCR_W, SCR_H);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(o, cb, LV_EVENT_DRAW_MAIN, NULL);
+    return o;
+}
+
+// ---------------------------------------------------------------------------
+// Açılış ekranının kadranı: aynı pişirilmiş LED halka, yanık kısmı ilerlemeyi gösterir
+// ---------------------------------------------------------------------------
+static struct {
+    lv_obj_t *obj;
+    int lit;
+} dial;
+
+static void dial_draw_cb(lv_event_t *e)
+{
+    lv_draw_ctx_t *ctx = lv_event_get_draw_ctx(e);
+    draw_lit(ctx, 0, dial.lit, LV_OPA_COVER);
+    if (dial.lit > 0) {
+        draw_seg(ctx, dial.lit - 1, lv_color_white(), LV_OPA_60, SEG_FILL);
+    }
+}
+
+static void dial_delete_cb(lv_event_t *e)
+{
+    dial.obj = NULL;
+}
+
+lv_obj_t *ui_dial_create(lv_obj_t *scr)
+{
+    if (!bake_dial(g_settings.rpm_max / SEG_RPM * SEG_RPM, g_settings.shift_rpm)) {
+        return NULL;
+    }
+    lv_obj_t *bg = lv_img_create(scr);
+    lv_img_set_src(bg, &bake.off);
+    lv_obj_set_pos(bg, 0, 0);
+    dial.obj = layer_obj(scr, dial_draw_cb);
+    lv_obj_add_event_cb(dial.obj, dial_delete_cb, LV_EVENT_DELETE, NULL);
+    dial.lit = 0;
+    return dial.obj;
+}
+
+void ui_dial_set(float frac)
+{
+    if (dial.obj == NULL) {
+        return;
+    }
+    const int nseg = bake.rpm_max / SEG_RPM;
+    const int lit = LV_MAX(0, LV_MIN(nseg, (int)lroundf(frac * nseg)));
+    if (lit == dial.lit) {
+        return;
+    }
+    lv_area_t a;
+    sector_area(rpm_ang((LV_MIN(lit, dial.lit) - 1) * SEG_RPM), rpm_ang(LV_MAX(lit, dial.lit) * SEG_RPM),
+                R_TICK_MAJ - 10, CX, &a);
+    lv_obj_invalidate_area(dial.obj, &a);
+    dial.lit = lit;
+}
+
 lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
 {
     lv_obj_t *scr = ui_screen_create();
     pick_channels(mask);
+    m.scr = scr;
     m.speed_view = m.has_speed && g_settings.main_view == SET_VIEW_SPEED;
+    m.rpm_max = g_settings.rpm_max / SEG_RPM * SEG_RPM;
+    m.shift = g_settings.shift_rpm;
+    m.nseg = m.rpm_max / SEG_RPM;
+    m.baked = bake_dial(m.rpm_max, m.shift);
 
-    if (m.speed_view) {
-        m.max = SPEED_MAX;
-        m.step = 5;
-        m.warn = m.red = SPEED_MAX + 1;     // hızda renk bölgesi yok
-    } else {
-        m.max = g_settings.rpm_max / 100;
-        m.step = 2;
-        m.red = g_settings.shift_rpm / 100;
-        m.warn = m.red - 10;
+    if (m.baked) {
+        lv_obj_set_style_bg_opa(scr, LV_OPA_TRANSP, 0);    // kadran görüntüsü her pikseli boyar
+        lv_obj_t *bg = lv_img_create(scr);
+        lv_img_set_src(bg, &bake.off);
+        lv_obj_set_pos(bg, 0, 0);
     }
-    const int n = m.max / m.step + 1;
-    // segment genişliği aralığın ~%55'i (270° yay, ortalama yarıçap ~215 px)
-    const int seg_w = (int)(2 * 3.14159f * 215 * 0.75f / (n - 1) * 0.55f);
+    m.ring = layer_obj(scr, ring_draw_cb);
 
-    m.meter = ui_ring_meter(scr);
-    lv_obj_set_style_pad_all(m.meter, 12, 0);
-    lv_obj_set_style_text_font(m.meter, &ui_font_label, 0);
-    if (m.speed_view) {
-        lv_obj_remove_event_cb(m.meter, ui_meter_label_div10_cb);   // etiketler km/h
+    // 1000 rpm etiketleri, kırmızı bölgede kırmızı
+    char buf[24];
+    for (int k = 0; k * 1000 <= m.rpm_max; k++) {
+        const float a = rpm_ang(k * 1000.0f) * DEG;
+        snprintf(buf, sizeof(buf), "%d", k);
+        lv_obj_t *l = ui_label(scr, &ui_font_label_lg, k * 1000 >= m.shift ? C_ALERT : C_MUTED, buf);
+        lv_obj_align(l, LV_ALIGN_CENTER, (lv_coord_t)lroundf(cosf(a) * R_NUM), (lv_coord_t)lroundf(sinf(a) * R_NUM));
     }
-    lv_meter_scale_t *s = lv_meter_add_scale(m.meter);
-    lv_meter_set_scale_range(m.meter, s, 0, m.max, 270, 135);
-    lv_meter_set_scale_ticks(m.meter, s, n, seg_w, SEG_LEN, C_SEG_OFF);
-    // etiket: devirde her 1000 rpm, hızda her 20 km/h
-    lv_meter_set_scale_major_ticks(m.meter, s, m.speed_view ? 4 : 5, seg_w, SEG_LEN, C_SEG_OFF, 12);
 
-    // aralıklar hiç çakışmaz; çakışsa son eklenen kazanır (tepe segmenti)
-    m.red_off = lv_meter_add_scale_lines(m.meter, s, C_SEG_RED, C_SEG_RED, false, 0);
-    m.lit[LIT_N] = lv_meter_add_scale_lines(m.meter, s, C_SEG_LO, C_SEG_HI, false, 0);
-    m.lit[LIT_W] = lv_meter_add_scale_lines(m.meter, s, C_WARN, C_WARN, false, 0);
-    m.lit[LIT_R] = lv_meter_add_scale_lines(m.meter, s, C_ALERT, C_ALERT, false, 0);
-    m.peak = lv_meter_add_scale_lines(m.meter, s, C_TEXT, C_TEXT, false, 0);
-    m.peak_v = -1;
-
-    m.shift = lv_obj_create(scr);
-    lv_obj_remove_style_all(m.shift);
-    lv_obj_set_size(m.shift, BOARD_LCD_H_RES, BOARD_LCD_V_RES);
-    lv_obj_center(m.shift);
-    lv_obj_set_style_radius(m.shift, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_color(m.shift, C_ALERT, 0);
-    lv_obj_set_style_border_width(m.shift, 8, 0);
-    lv_obj_set_style_border_opa(m.shift, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(m.shift, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(m.shift, LV_OBJ_FLAG_HIDDEN);
+    // vites ışıkları
+    const int dot = 12, gap = 7, x0 = -(SHIFT_DOTS - 1) * (dot + gap) / 2;
+    for (int i = 0; i < SHIFT_DOTS; i++) {
+        lv_obj_t *d = lv_obj_create(scr);
+        lv_obj_remove_style_all(d);
+        lv_obj_set_size(d, dot, dot);
+        lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(d, C_DOT_OFF, 0);
+        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(d, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_align(d, LV_ALIGN_TOP_MID, x0 + i * (dot + gap), 90);
+        m.dots[i] = d;
+    }
 
     m.status = ui_label(scr, &ui_font_label, C_WARN, "");
     lv_obj_set_style_text_letter_space(m.status, 2, 0);
-    lv_obj_align(m.status, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_align(m.status, LV_ALIGN_TOP_MID, 0, 108);
 
+    m.gear = ui_label(scr, &ui_font_gear, C_TEXT, m.has_speed ? "N" : "");
+    lv_obj_align(m.gear, LV_ALIGN_TOP_MID, 0, 124);
+
+    const bool big_speed = m.speed_view;
+    value_row(scr, 240, &ui_font_big, &ui_font_label_lg, &m.val, &m.unit, big_speed ? "KM/H" : "RPM");
     if (m.has_speed) {
-        value_row(scr, 106, &ui_font_value, &m.sec_val, &m.sec_unit, m.speed_view ? "RPM" : "KM/H");
+        value_row(scr, 310, &ui_font_value, &ui_font_label, &m.sec_val, &m.sec_unit, big_speed ? "RPM" : "KM/H");
+    } else {
+        m.sec_val = NULL;
     }
 
-    m.val = ui_label(scr, &ui_font_big, C_MUTED, "---");
-    lv_obj_align(m.val, LV_ALIGN_TOP_MID, 0, 140);
-    m.unit = ui_label(scr, &ui_font_label_lg, C_MUTED, m.speed_view ? "KM/H" : "RPM");
-    lv_obj_set_style_text_letter_space(m.unit, 5, 0);
-    lv_obj_align(m.unit, LV_ALIGN_TOP_MID, 0, 212);
-
-    char cap[24];
-    const int x0 = -(m.npods - 1) * POD_DX / 2;
+    const int x = -(m.npods - 1) * POD_DX;
     for (int i = 0; i < m.npods; i++) {
-        const int x = x0 + i * POD_DX;
-        m.pod_cap[i] = ui_label(scr, &ui_font_label, C_MUTED, pod_caption(m.pod_ch[i], cap, sizeof(cap)));
+        const int px = x + i * 2 * POD_DX;
+        m.pod_cap[i] = ui_label(scr, &ui_font_label, C_MUTED, pod_caption(m.pod_ch[i], buf, sizeof(buf)));
         lv_obj_set_style_text_letter_space(m.pod_cap[i], 1, 0);
-        lv_obj_align(m.pod_cap[i], LV_ALIGN_TOP_MID, x, 262);
+        lv_obj_align(m.pod_cap[i], LV_ALIGN_TOP_MID, px, 350);
         m.pod_val[i] = ui_label(scr, &ui_font_value, C_MUTED, "--");
-        lv_obj_align(m.pod_val[i], LV_ALIGN_TOP_MID, x, 282);
-        if (i) {
-            lv_obj_t *div = lv_obj_create(scr);
-            lv_obj_remove_style_all(div);
-            lv_obj_set_size(div, 1, 40);
-            lv_obj_set_style_bg_color(div, C_TILE_BRD, 0);
-            lv_obj_set_style_bg_opa(div, LV_OPA_COVER, 0);
-            lv_obj_align(div, LV_ALIGN_TOP_MID, x - POD_DX / 2, 266);
-        }
+        lv_obj_align(m.pod_val[i], LV_ALIGN_TOP_MID, px, 368);
     }
 
-    if (m.has_clt) {
-        // alt boşlukta soldan sağa dolan yay
-        m.clt_arc = lv_arc_create(scr);
-        lv_obj_set_size(m.clt_arc, 408, 408);
-        lv_obj_center(m.clt_arc);
-        lv_obj_set_style_pad_all(m.clt_arc, 0, 0);
-        lv_arc_set_mode(m.clt_arc, LV_ARC_MODE_REVERSE);
-        lv_arc_set_bg_angles(m.clt_arc, 62, 118);
-        lv_arc_set_range(m.clt_arc, CLT_LO, CLT_HI);
-        lv_arc_set_value(m.clt_arc, CLT_LO);
-        lv_obj_remove_style(m.clt_arc, NULL, LV_PART_KNOB);
-        lv_obj_clear_flag(m.clt_arc, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_style_arc_width(m.clt_arc, 10, LV_PART_MAIN);
-        lv_obj_set_style_arc_color(m.clt_arc, C_TRACK, LV_PART_MAIN);
-        lv_obj_set_style_arc_width(m.clt_arc, 10, LV_PART_INDICATOR);
-        lv_obj_set_style_arc_color(m.clt_arc, C_OK, LV_PART_INDICATOR);
-        m.clt_color = C_OK;
+    // alt boşlukta iki yay: solda hararet, sağda motor yükü (MAP)
+    m.clt_arc = m.has_clt ? gap_arc(scr, 100, 128, true) : NULL;
+    m.load_arc = m.has_map ? gap_arc(scr, 52, 80, false) : NULL;
+    m.clt_color = m.load_color = C_OK;
 
-        lv_obj_t *unit;
-        value_row(scr, 336, &ui_font_value, &m.clt_val, &unit, "°C");
-        lv_obj_t *cap_clt = ui_label(scr, &ui_font_label, C_MUTED, "HARARET");
-        lv_obj_set_style_text_letter_space(cap_clt, 3, 0);
-        lv_obj_align(cap_clt, LV_ALIGN_TOP_MID, 0, 368);
-    }
-
+    m.needle = layer_obj(scr, needle_draw_cb);
     ui_page_dots(scr, page, pages);
+
+    // başlangıç durumu: ibre sıfırda, tur ekran ilk açılınca
+    m.pos = m.vel = m.trail_v = m.peak_v = 0;
+    for (int i = 0; i < GHOSTS; i++) {
+        m.hist[i] = A0;
+    }
+    memset(&m.st, 0, sizeof(m.st));
+    m.st.peak = -1;
+    m.st.frozen = m.nseg;
+    for (int i = 0; i <= GHOSTS; i++) {
+        m.st.ang[i] = A0;
+    }
+    m.last_us = 0;
+    m.sweep_t0 = 0;
+    m.gear_shown = 0;
+    m.badge = NULL;
+    m.result_t = 0;
+    m.run = RUN_IDLE;
+    m.cut = false;
+    m.clt = m.map = NAN;
+    m.last_val[0] = m.last_sec[0] = '\0';
+    ui_motion_reset();
+
+    lv_timer_t *t = lv_timer_create(timer_cb, FRAME_MS, NULL);
+    lv_obj_add_event_cb(scr, scr_delete_cb, LV_EVENT_DELETE, t);
     return scr;
 }
 
-static void ind_set(lv_meter_indicator_t *ind, int a, int b)
+// ---------------------------------------------------------------------------
+// Kare
+// ---------------------------------------------------------------------------
+static float ease_out(float t)
 {
-    if (b < a) {
-        a = -2;         // boş aralık: hiçbir segment
-        b = -1;
-    }
-    if (ind->start_value != a) {
-        lv_meter_set_indicator_start_value(m.meter, ind, a);
-    }
-    if (ind->end_value != b) {
-        lv_meter_set_indicator_end_value(m.meter, ind, b);
-    }
+    return 1 - (1 - t) * (1 - t) * (1 - t);
 }
 
-/** v: ölçek biriminde değer, -1 = veri yok. */
-static void set_bar(int v, bool blink)
+static void badge_set(const char *txt, lv_color_t col, int64_t now)
 {
-    v = v > m.max ? m.max : v;
-    const int64_t now = esp_timer_get_time();
-    if (v >= m.peak_v) {
-        m.peak_v = v;
-        m.peak_t = now;
-    } else if (now - m.peak_t > PEAK_HOLD_US) {
-        m.peak_v = m.peak_v - m.step > v ? m.peak_v - m.step : v;      // tutma bitince segment segment iner
-    }
-    ind_set(m.lit[LIT_N], 0, v < m.warn - 1 ? v : m.warn - 1);
-    ind_set(m.lit[LIT_W], m.warn, v < m.red - 1 ? v : m.red - 1);
-    ind_set(m.lit[LIT_R], m.red, v);
-    ind_set(m.red_off, v + 1 > m.red ? v + 1 : m.red, m.max);
-    const int pk = m.peak_v / m.step * m.step;
-    const bool pk_on = v >= 0 && pk > v;
-    ind_set(m.peak, pk_on ? pk : 0, pk_on ? pk : -1);
-
-    const lv_color_t rc = blink ? C_TEXT : C_ALERT;
-    if (rc.full != m.lit[LIT_R]->type_data.scale_lines.color_start.full) {
-        m.lit[LIT_R]->type_data.scale_lines.color_start = rc;
-        m.lit[LIT_R]->type_data.scale_lines.color_end = rc;
-        lv_obj_invalidate(m.meter);
-    }
+    m.badge = txt;
+    m.badge_col = col;
+    m.badge_t = now;
 }
 
-static void set_shift_light(bool on)
-{
-    if (on) {
-        lv_obj_clear_flag(m.shift, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(m.shift, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
-static void status_update(const vems_data_t *d, bool fresh)
+static void status_update(int64_t now, int cold_limit)
 {
     char buf[40];
     const char *txt = "";
     lv_color_t col = C_MUTED;
-    if (!fresh) {
+    if (!m.fresh) {
         const vems_state_t st = vems_get_state();
-        const bool lost = d->seq && st != VEMS_STATE_WAIT_LINK;
-        txt = lost ? LV_SYMBOL_WARNING "  VERİ YOK"
-              : st == VEMS_STATE_ECU_OK || st == VEMS_STATE_LINK_UP ? "ECU SORGULANIYOR" : "OBD ARANIYOR";
+        const bool lost = st == VEMS_STATE_ECU_OK;
+        txt = lost ? LV_SYMBOL_WARNING "  VERİ YOK" : st == VEMS_STATE_LINK_UP ? "ECU SORGULANIYOR" : "OBD ARANIYOR";
         col = lost ? C_ALERT : C_WARN;
-    } else if (d->mil_on || d->mil_codes > 0) {
-        snprintf(buf, sizeof(buf), LV_SYMBOL_WARNING "  ARIZA · %d KOD", d->mil_codes > 0 ? d->mil_codes : 1);
+    } else if (m.mil_on) {
+        snprintf(buf, sizeof(buf), LV_SYMBOL_WARNING "  ARIZA · %d KOD", m.mil_codes > 0 ? m.mil_codes : 1);
         txt = buf;
-        col = d->mil_on ? C_ALERT : C_WARN;
-    } else if (m.has_clt && d->clt_c < CLT_COLD) {
-        txt = "MOTOR SOĞUK";
+        col = C_ALERT;
+    } else if (m.badge && now - m.badge_t < BADGE_US) {
+        txt = m.badge;
+        col = m.badge_col;
+    } else if (m.result_t && now - m.result_t < RESULT_US) {
+        txt = m.result;
+        col = C_PRIMARY;
+    } else if (m.cut) {
+        txt = "YAKIT KESİK";
+        col = C_OK;
+    } else if (cold_limit < m.shift) {
+        snprintf(buf, sizeof(buf), "MOTOR SOĞUK · %d", cold_limit);
+        txt = buf;
         col = C_ACCENT;
+    } else if (m.mil_codes > 0) {
+        snprintf(buf, sizeof(buf), "%d KAYITLI KOD", m.mil_codes);
+        txt = buf;
+        col = C_WARN;
     }
     ui_label_set(m.status, txt);
-    lv_obj_set_style_text_color(m.status, col, 0);
+    if (lv_obj_get_style_text_color(m.status, 0).full != col.full) {
+        lv_obj_set_style_text_color(m.status, col, 0);
+    }
+}
+
+static void set_color(lv_obj_t *o, lv_color_t c)
+{
+    if (lv_obj_get_style_text_color(o, 0).full != c.full) {
+        lv_obj_set_style_text_color(o, c, 0);
+    }
+}
+
+static void gear_anim_cb(void *o, int32_t v)
+{
+    lv_obj_set_style_translate_y(o, v, 0);
+}
+
+static void gear_update(int g, int64_t now, int eff_shift)
+{
+    if (g == m.gear_shown || !m.has_speed) {
+        return;
+    }
+    // tam gazda bir üst vites: devrin tepe noktasına göre not
+    if (g == m.gear_shown + 1 && m.gear_shown >= 1 && now - m.wot_t < 1200 * 1000) {
+        const float d = m.rev_max - eff_shift;
+        if (fabsf(d) <= 350) {
+            badge_set("MÜKEMMEL VİTES", C_OK, now);
+        } else if (d > 350) {
+            badge_set("GEÇ VİTES", C_WARN, now);
+        } else if (d > -1500) {
+            badge_set("ERKEN VİTES", C_ACCENT, now);
+        }
+    }
+    m.gear_shown = g;
+    m.gear_t = now;
+    char buf[4];
+    snprintf(buf, sizeof(buf), g ? "%d" : "N", g);
+    lv_label_set_text(m.gear, buf);
+    // vites "oturur": yukarıdan düşer, hafif zıplar
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, m.gear);
+    lv_anim_set_exec_cb(&a, gear_anim_cb);
+    lv_anim_set_values(&a, -22, 0);
+    lv_anim_set_time(&a, 280);
+    lv_anim_set_path_cb(&a, lv_anim_path_overshoot);
+    lv_anim_start(&a);
+}
+
+/** 0-100 km/h: durunca kurulur, kalkışta başlar, 100'de biter. */
+static void run_update(float spd, int64_t now)
+{
+    if (isnan(spd)) {
+        m.run = RUN_IDLE;
+        return;
+    }
+    if (spd < 1) {
+        m.run = RUN_ARMED;
+    } else if (m.run == RUN_ARMED) {
+        m.run = RUN_ON;
+        m.run_t0 = now;
+    } else if (m.run == RUN_ON) {
+        if (spd >= 100) {
+            snprintf(m.result, sizeof(m.result), "0-100 · %.1f SN", (now - m.run_t0) / 1e6f);
+            m.result_t = now;
+            m.run = RUN_IDLE;
+        } else if (now - m.run_t0 > RUN_MAX_US) {
+            m.run = RUN_IDLE;
+        }
+    }
+}
+
+static void frame(bool force)
+{
+    if (!force && lv_scr_act() != m.scr) {
+        return;
+    }
+    const int64_t now = esp_timer_get_time();
+    float dt = m.last_us ? (now - m.last_us) / 1e6f : 0;
+    dt = dt > 0.05f ? 0.05f : dt;
+    m.last_us = now;
+    if (m.sweep_t0 == 0 && lv_scr_act() == m.scr) {
+        m.sweep_t0 = now;
+    }
+
+    ui_motion_t mo;
+    ui_motion_get(now, &mo);
+    const bool live = m.fresh && !isnan(mo.rpm);
+    float target = live ? mo.rpm : 0;
+    if (m.sweep_t0 > 0) {
+        const float p = (now - m.sweep_t0) / (float)SWEEP_US;
+        if (p >= 1) {
+            m.sweep_t0 = -1;
+            m.peak_v = m.trail_v = m.pos;   // turun tepesi kalmasın
+        } else {
+            const float s = p < 0.45f ? ease_out(p / 0.45f) : p < 0.55f ? 1 : 1 - ease_out((p - 0.55f) / 0.45f);
+            target = fmaxf(target, s * m.rpm_max);
+        }
+    }
+
+    // ibre: yay + sönüm, hedef değiştikçe hafif aşıp oturur. Sabit küçük adımlarla: kare uzasa da kararlı
+    for (float left = dt; left > 0; left -= SPRING_STEP) {
+        const float h = fminf(left, SPRING_STEP);
+        const float acc = SPRING_W * SPRING_W * (target - m.pos) - 2 * SPRING_Z * SPRING_W * m.vel;
+        m.vel += acc * h;
+        m.pos += m.vel * h;
+    }
+    if (m.pos < 0 || m.pos > m.rpm_max * 1.01f) {
+        m.pos = fmaxf(0, fminf(m.pos, m.rpm_max * 1.01f));
+        m.vel = 0;
+    }
+    const float pos = fminf(m.pos, m.rpm_max);
+
+    // iz ve tepe
+    if (pos >= m.trail_v) {
+        m.trail_v = pos;
+        m.trail_t = now;
+    } else if (now - m.trail_t > TRAIL_HOLD_US) {
+        m.trail_v = fmaxf(pos, m.trail_v - TRAIL_DROP * dt);
+    }
+    if (pos >= m.peak_v) {
+        m.peak_v = pos;
+        m.peak_t = now;
+    } else if (now - m.peak_t > PEAK_HOLD_US) {
+        m.peak_v = fmaxf(pos, m.peak_v - PEAK_DROP * dt);
+    }
+    if (pos >= m.rev_max || now - m.rev_t > REV_WINDOW_US) {
+        m.rev_max = pos;
+        m.rev_t = now;
+    }
+
+    // soğuk motor: izin verilen devir 20 °C'de 3500, 60 °C'de vites noktası
+    int cold_limit = m.shift;
+    if (m.fresh && m.has_clt && !isnan(m.clt) && m.clt < CLT_COLD) {
+        cold_limit = (int)(3500 + (m.clt - 20) * 62.5f) / SEG_RPM * SEG_RPM;
+        cold_limit = LV_MAX(3500, LV_MIN(cold_limit, m.shift));
+    }
+    const int eff_shift = cold_limit;
+    const bool shift = pos >= eff_shift && m.sweep_t0 < 0;
+    const bool blink = shift && ((now / BLINK_US) & 1);
+
+    ring_state_t *n = &m.nx;
+    n->lit = (int)ceilf(pos / SEG_RPM - 0.02f);
+    n->lit = LV_MAX(0, LV_MIN(n->lit, m.nseg));
+    n->trail = LV_MAX(n->lit, LV_MIN((int)ceilf(m.trail_v / SEG_RPM - 0.02f), m.nseg));
+    const int pk = (int)ceilf(m.peak_v / SEG_RPM - 0.02f) - 1;
+    n->peak = live && pk >= n->lit && pk >= 0 ? pk : -1;
+    n->frozen = cold_limit < m.shift ? cold_limit / SEG_RPM : m.nseg;
+    // uç segment devir hızla yükselirken daha parlak
+    n->head = (lv_opa_t)(LV_MIN(200, 70 + (int)fmaxf(0, m.vel) / 40) / 26 * 26);
+    n->flash = blink;
+    n->vign = blink;
+    n->ang[0] = rpm_ang(pos);
+    for (int i = 0; i < GHOSTS; i++) {
+        n->ang[i + 1] = m.hist[i];
+    }
+    memmove(&m.hist[1], &m.hist[0], (GHOSTS - 1) * sizeof(float));
+    m.hist[0] = n->ang[0];
+    ring_commit();
+
+    // vites ışıkları
+    const float step = (float)SHIFT_LEAD / SHIFT_DOTS;
+    for (int i = 0; i < SHIFT_DOTS; i++) {
+        lv_color_t c = C_DOT_OFF;
+        if (shift) {
+            c = blink ? C_FLASH : C_DOT_OFF;
+        } else if (pos >= eff_shift - SHIFT_LEAD + i * step) {
+            c = i < 2 ? C_OK : i < 5 ? C_WARN : C_ALERT;
+        }
+        if (lv_obj_get_style_bg_color(m.dots[i], 0).full != c.full) {
+            lv_obj_set_style_bg_color(m.dots[i], c, 0);
+        }
+    }
+
+    // değerler: devir 50'lik adımla (okunur kalsın), hız tam sayı
+    char buf[16];
+    const float spd = live ? mo.speed : NAN;
+    const float rpm_txt = live ? roundf(mo.rpm / 50) * 50 : NAN;
+    const bool big_speed = m.speed_view && m.has_speed;
+    ui_ch_format(big_speed ? CH_SPEED : CH_RPM, big_speed ? spd : rpm_txt, buf, sizeof(buf));
+    if (strcmp(buf, m.last_val) != 0) {
+        strcpy(m.last_val, buf);
+        lv_label_set_text(m.val, buf);
+    }
+    set_color(m.val, isnan(big_speed ? spd : rpm_txt) ? C_MUTED : (blink && !big_speed) ? C_ALERT : C_TEXT);
+    if (m.sec_val) {
+        ui_ch_format(big_speed ? CH_RPM : CH_SPEED, big_speed ? rpm_txt : spd, buf, sizeof(buf));
+        if (strcmp(buf, m.last_sec) != 0) {
+            strcpy(m.last_sec, buf);
+            lv_label_set_text(m.sec_val, buf);
+        }
+        set_color(m.sec_val, isnan(spd) ? C_MUTED : (blink && big_speed) ? C_ALERT : C_SOFT);
+    }
+
+    // vites: yeni viteste kısa mavi parlama, vites noktasında kırmızı yanıp söner
+    gear_update(live ? mo.gear : 0, now, eff_shift);
+    lv_color_t gc = C_TEXT;
+    if (!live) {
+        gc = C_TICK;
+    } else if (shift) {
+        gc = blink ? C_ALERT : C_TEXT;
+    } else if (now - m.gear_t < 250 * 1000) {
+        gc = C_FLASH;
+    } else if (pos >= eff_shift - SHIFT_LEAD) {
+        gc = C_WARN;
+    }
+    set_color(m.gear, gc);
+
+    if (live) {
+        run_update(spd, now);
+    }
+    status_update(now, cold_limit);
 }
 
 void ui_main_update(const vems_data_t *d, bool fresh)
 {
     char buf[24];
-    status_update(d, fresh);
-
-    const float rpm = fresh ? d->rpm : NAN;
-    const float spd = fresh && m.has_speed ? d->speed_kmh : NAN;
-    const float v = m.speed_view ? spd : rpm;
-    // vites uyarısı: segmentler, sayı ve çerçeve 5 Hz flaş (saatten türetilir, her güncellemede tutarlı)
-    const bool shift = !isnan(rpm) && rpm >= g_settings.shift_rpm;
-    const bool blink = shift && ((esp_timer_get_time() / 100000) & 1);
-
-    ui_ch_format(m.speed_view ? CH_SPEED : CH_RPM, v, buf, sizeof(buf));
-    ui_label_set(m.val, isnan(v) ? "---" : buf);
-    lv_obj_set_style_text_color(m.val, isnan(v) ? C_MUTED : (blink && !m.speed_view) ? C_ALERT : C_TEXT, 0);
-    set_bar(isnan(v) ? -1 : (int)(m.speed_view ? v : v / 100), blink);
-    set_shift_light(blink);
-    if (isnan(v)) {
-        m.peak_v = -1;
+    m.fresh = fresh;
+    if (fresh) {
+        ui_motion_feed(d);
     }
+    const int64_t now = esp_timer_get_time();
+    m.mil_on = fresh && d->mil_on;
+    m.mil_codes = fresh ? d->mil_codes : 0;
+    m.clt = fresh ? d->clt_c : NAN;
+    m.map = fresh && m.has_map ? d->map_kpa : NAN;
 
-    if (m.has_speed) {
-        const float s = m.speed_view ? rpm : spd;
-        ui_ch_format(m.speed_view ? CH_RPM : CH_SPEED, s, buf, sizeof(buf));
-        ui_label_set(m.sec_val, buf);
-        const lv_color_t sc = isnan(s) ? C_MUTED : (m.speed_view && shift) ? C_ALERT : C_SOFT;
-        lv_obj_set_style_text_color(m.sec_val, sc, 0);
+    // gaz kapalı, yüksek vakum, devir yüksek: ECU yakıtı kesmiştir (motor freni)
+    if (!fresh || isnan(m.map)) {
+        m.cut = false;
+    } else if (d->rpm > 1500 && m.map < CUT_KPA && (isnan(d->speed_kmh) || d->speed_kmh > 15)) {
+        m.cut = true;
+    } else if (d->rpm < 1200 || m.map > CUT_KPA + 4) {
+        m.cut = false;
+    }
+    if (!isnan(m.map) && m.map > WOT_KPA) {
+        m.wot_t = now;
     }
 
     for (int i = 0; i < m.npods; i++) {
@@ -352,23 +1106,34 @@ void ui_main_update(const vems_data_t *d, bool fresh)
         }
         ui_ch_format(c, x, buf, sizeof(buf));
         ui_label_set(m.pod_val[i], buf);
-        lv_obj_set_style_text_color(m.pod_val[i], ui_ch_color(c, x), 0);
+        set_color(m.pod_val[i], ui_ch_color(c, x));
     }
 
-    if (m.has_clt) {
-        const float t = fresh ? d->clt_c : NAN;
-        ui_ch_format(CH_CLT, t, buf, sizeof(buf));
-        ui_label_set(m.clt_val, buf);
-        const lv_color_t col = ui_ch_color(CH_CLT, t);
-        lv_obj_set_style_text_color(m.clt_val, col, 0);
-        const lv_color_t ac = col.full == C_TEXT.full ? C_OK : col;
+    if (m.clt_arc) {
+        const lv_color_t col = ui_ch_color(CH_CLT, m.clt);
+        const lv_color_t ac = col.full == C_TEXT.full || col.full == C_MUTED.full ? C_OK : col;
         if (ac.full != m.clt_color.full) {
             m.clt_color = ac;
             lv_obj_set_style_arc_color(m.clt_arc, ac, LV_PART_INDICATOR);
         }
-        const int16_t a = isnan(t) ? CLT_LO : (int16_t)t;
-        if (lv_arc_get_value(m.clt_arc) != a) {
-            lv_arc_set_value(m.clt_arc, a);
+        const float f = isnan(m.clt) ? 0 : clamp01((m.clt - CLT_LO) / (CLT_HI - CLT_LO));
+        const int16_t v = (int16_t)(f * 1000) / 10 * 10;
+        if (lv_arc_get_value(m.clt_arc) != v) {
+            lv_arc_set_value(m.clt_arc, v);
         }
     }
+    if (m.load_arc) {
+        // atmosferik motor: 25 kPa (rölanti / motor freni) .. 100 kPa (tam gaz)
+        const float f = isnan(m.map) ? 0 : clamp01((m.map - 25) / 75);
+        const lv_color_t ac = m.cut ? C_ACCENT : f > 0.8f ? C_ALERT : f > 0.55f ? C_WARN : C_PRIMARY;
+        if (ac.full != m.load_color.full) {
+            m.load_color = ac;
+            lv_obj_set_style_arc_color(m.load_arc, ac, LV_PART_INDICATOR);
+        }
+        const int16_t v = (int16_t)(f * 1000) / 10 * 10;
+        if (lv_arc_get_value(m.load_arc) != v) {
+            lv_arc_set_value(m.load_arc, v);
+        }
+    }
+    frame(true);
 }

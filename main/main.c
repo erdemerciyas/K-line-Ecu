@@ -16,6 +16,9 @@
 #include "board_lcd.h"
 #include "dash_ui.h"
 #endif
+#if CONFIG_VEMS_BLE_PANEL
+#include "ble_panel.h"
+#endif
 
 static const char *TAG = "main";
 
@@ -104,6 +107,9 @@ void app_main(void)
     }
     board_lcd_set_backlight(g_settings.brightness);
     vTaskDelay(pdMS_TO_TICKS(400));    // first boot log line visible before the source starts
+#endif
+#if CONFIG_VEMS_BLE_PANEL
+    ESP_ERROR_CHECK(ble_panel_start());
 #endif
 
     ESP_ERROR_CHECK(obd_start());

@@ -22,6 +22,7 @@ typedef struct {
     uint8_t batt_low;       // 105..125 = 10.5..12.5 V
     uint8_t beep;           // boot melody 0 / 1
     uint8_t main_view;      // set_view_t: sürüş sayfasında büyük gösterilen değer
+    uint16_t rotation;      // 0..359 derece, ekran saat yönünde döndürülür (kutu içinde yamuk duran ekran için)
 } settings_t;
 
 typedef struct {

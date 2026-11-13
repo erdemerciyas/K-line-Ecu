@@ -148,3 +148,42 @@ void ui_motion_get(int64_t now, ui_motion_t *out)
     }
     out->speed = mo.speed_out;
 }
+
+// ---------------------------------------------------------------------------
+// Vites ışığı
+// ---------------------------------------------------------------------------
+#define SHIFT_CLT_COLD  60          // °C: altında izin verilen devir düşer
+#define SHIFT_COLD_MIN  3500        // 20 °C ve altı
+#define SHIFT_COLD_STEP 250         // sınır bu adıma yuvarlanır (halka segmenti)
+
+int ui_shift_limit(int shift_rpm, float clt)
+{
+    if (isnan(clt) || clt >= SHIFT_CLT_COLD) {
+        return shift_rpm;
+    }
+    // 20 °C'de 3500, 60 °C'de vites noktası (doğrusal)
+    const int lim = (int)(SHIFT_COLD_MIN + (clt - 20) * 62.5f) / SHIFT_COLD_STEP * SHIFT_COLD_STEP;
+    return LV_MAX(SHIFT_COLD_MIN, LV_MIN(lim, shift_rpm));
+}
+
+bool ui_shift_update(ui_shift_t *s, float rpm, int limit, int64_t now)
+{
+    const bool on = !isnan(rpm) && rpm >= (s->on ? limit - UI_SHIFT_HYST : limit);
+    if (on && !s->on) {
+        s->t0 = now;
+    }
+    s->on = on;
+    return on;
+}
+
+bool ui_shift_blink(const ui_shift_t *s, int64_t now, int64_t period_us)
+{
+    return s->on && ((now - s->t0) / period_us) % 2 == 0;
+}
+
+lv_color_t ui_shift_color(int stage)
+{
+    const settings_shift_col_t *p = &SETTINGS_SHIFT_COLS[g_settings.shift_col < SETTINGS_SHIFT_COL_COUNT ? g_settings.shift_col : 0];
+    const uint32_t c = stage <= 0 ? p->lo : stage == 1 ? p->mid : stage == 2 ? p->hi : p->flash;
+    return lv_color_hex(c ? c : SETTINGS_ACCENTS[g_settings.accent < SETTINGS_ACCENT_COUNT ? g_settings.accent : 0].rgb);
+}

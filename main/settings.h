@@ -31,6 +31,7 @@ typedef struct {
     uint8_t incl_page;      // 0 / 1: eğim sayfası
     uint8_t incl_warn;      // 10..45°: yan yatma uyarısı
     int16_t incl_up[3];     // eğim sıfırı: düz zeminde ölçülen "yukarı" (IMU ekseninde, mili-g); 0,0,0 = sıfırlanmadı
+    uint8_t shift_col;      // vites ışığı renk takımı, SETTINGS_SHIFT_COLS indeksi
 } settings_t;
 
 typedef enum { SET_GAUGE_ANALOG = 0, SET_GAUGE_DIGITAL } set_gauge_t;
@@ -44,6 +45,15 @@ extern const settings_accent_t SETTINGS_ACCENTS[];
 extern const int SETTINGS_ACCENT_COUNT;
 extern const uint8_t SETTINGS_DIG_CH[];     // vems_ch_t: dijital kutucuklarda seçilebilen veriler
 extern const int SETTINGS_DIG_CH_COUNT;
+
+// vites ışığı: dolarken 3 renk (ilk 2 / orta 3 / son 2 nokta) ve vites noktasındaki flaş; 0 = vurgu rengi
+typedef struct {
+    const char *name;
+    uint32_t lo, mid, hi, flash;
+} settings_shift_col_t;
+
+extern const settings_shift_col_t SETTINGS_SHIFT_COLS[];
+extern const int SETTINGS_SHIFT_COL_COUNT;
 
 typedef struct {
     const char *name;

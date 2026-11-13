@@ -38,6 +38,9 @@ static struct {
     uint32_t mask;
     int rpm_max, shift, gear_shown;
     int64_t gear_t;
+    float clt;                  // soğuk motorda vites noktası düşer
+    ui_shift_t sh;
+    lv_color_t sc[4];           // vites ışığı renkleri (ayardan)
 } g;
 
 static void set_color(lv_obj_t *o, lv_color_t c)
@@ -132,7 +135,7 @@ bool ui_digital_toggle_view(void)
     }
     g_settings.main_view = g.speed_view ? SET_VIEW_RPM : SET_VIEW_SPEED;
     settings_save();
-    ui_request_rebuild();
+    ui_request_drive_rebuild();
     return true;
 }
 
@@ -143,15 +146,18 @@ static void frame(void)
     ui_motion_get(now, &mo);
     const bool live = g.fresh && !isnan(mo.rpm);
     const float rpm = live ? mo.rpm : 0;
-    const bool shift = live && rpm >= g.shift;
-    const bool blink = shift && ((now / BLINK_US) & 1);
+    const int limit = ui_shift_limit(g.shift, g.clt);
+    const bool shift = ui_shift_update(&g.sh, live ? rpm : NAN, limit, now);
+    const bool blink = ui_shift_blink(&g.sh, now, BLINK_US);
 
-    // devir yayı: vurgu rengi, vites noktasına yaklaşınca sarı, noktada kırmızı yanıp söner
+    // devir yayı: vurgu rengi, vites noktasına yaklaşınca vites ışığı renkleriyle dolar, noktada flaş
     const int v = (int)lroundf(fminf(rpm / g.rpm_max, 1) * 1000);
     if (lv_arc_get_value(g.arc) != v) {
         lv_arc_set_value(g.arc, v);
     }
-    const lv_color_t ac = shift ? (blink ? C_ALERT : C_TEXT) : rpm >= g.shift - SHIFT_LEAD ? C_WARN : g.accent;
+    const float lead = rpm - (limit - SHIFT_LEAD);
+    const lv_color_t ac = shift ? (blink ? g.sc[3] : C_TICK)
+                          : lead < 0 ? g.accent : g.sc[lead < SHIFT_LEAD * 2 / 7 ? 0 : lead < SHIFT_LEAD * 5 / 7 ? 1 : 2];
     if (lv_obj_get_style_arc_color(g.arc, LV_PART_INDICATOR).full != ac.full) {
         lv_obj_set_style_arc_color(g.arc, ac, LV_PART_INDICATOR);
     }
@@ -178,7 +184,7 @@ static void frame(void)
             lv_label_set_text(g.gear, buf);
         }
         lv_color_t gc = !live ? C_TICK : shift ? (blink ? C_ALERT : C_TEXT) : now - g.gear_t < 250 * 1000 ? g.accent
-                        : rpm >= g.shift - SHIFT_LEAD ? C_WARN : C_TEXT;
+                        : rpm >= limit - SHIFT_LEAD ? C_WARN : C_TEXT;
         set_color(g.gear, gc);
     }
 }
@@ -193,7 +199,10 @@ static void timer_cb(lv_timer_t *t)
 static void scr_delete_cb(lv_event_t *e)
 {
     lv_timer_del(lv_event_get_user_data(e));
-    g.scr = NULL;
+    // yeniden kurulumda eski ekran yenisi oluştuktan sonra silinir: yeni ekranı unutma
+    if (lv_event_get_target(e) == g.scr) {
+        g.scr = NULL;
+    }
 }
 
 lv_obj_t *ui_digital_create(int page, int pages, uint32_t mask)
@@ -208,6 +217,11 @@ lv_obj_t *ui_digital_create(int page, int pages, uint32_t mask)
     g.shift = g_settings.shift_rpm;
     g.gear_shown = -1;
     g.fresh = false;
+    g.clt = NAN;
+    g.sh = (ui_shift_t){0};
+    for (int i = 0; i < 4; i++) {
+        g.sc[i] = ui_shift_color(i);
+    }
 
     // kırmızı bölge yayın zemininde, devir göstergesi üstünde
     const int red_a0 = ARC_A0 + (int)lroundf((float)g.shift / g.rpm_max * ARC_SPAN);
@@ -266,6 +280,7 @@ lv_obj_t *ui_digital_create(int page, int pages, uint32_t mask)
 void ui_digital_update(const vems_data_t *d, bool fresh)
 {
     g.fresh = fresh;
+    g.clt = fresh && (g.mask & CH_BIT(CH_CLT)) ? d->clt_c : NAN;
     if (fresh) {
         ui_motion_feed(d);
     }

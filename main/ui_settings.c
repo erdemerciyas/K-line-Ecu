@@ -17,7 +17,7 @@
 #endif
 
 typedef enum {
-    ID_GAUGE, ID_VIEW, ID_GEAR, ID_ACCENT, ID_DIG1, ID_DIG2, ID_DIG3, ID_DIG4, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_RPMMAX,
+    ID_GAUGE, ID_VIEW, ID_GEAR, ID_ACCENT, ID_DIG1, ID_DIG2, ID_DIG3, ID_DIG4, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_SHIFTCOL, ID_RPMMAX,
     ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_BLE, ID_INCL, ID_INCL_WARN, ID_INCL_CAL, ID_RESCAN, ID_RESET, ID_VER,
     ID_COUNT
 } set_id_t;
@@ -42,6 +42,7 @@ static const row_def_t ROWS[ID_COUNT] = {
     [ID_BRIGHT] = {"Parlaklık",      T_RANGE, 5, 100, 5},
     [ID_ROTATE] = {"Ekran açısı",    T_RANGE, 0, 359, 1},
     [ID_SHIFT]  = {"Vites uyarısı",  T_RANGE, 3000, 9500, 100},
+    [ID_SHIFTCOL] = {"Vites ışığı rengi", T_ENUM},
     [ID_RPMMAX] = {"Devir ölçeği",   T_ENUM},
     [ID_FUEL]   = {"Yakıt",          T_ENUM},
     [ID_PRESS]  = {"Basınç kartı",   T_ENUM},
@@ -95,6 +96,7 @@ static int get_val(set_id_t id)
     case ID_BRIGHT: return g_settings.brightness;
     case ID_ROTATE: return g_settings.rotation;
     case ID_SHIFT:  return g_settings.shift_rpm;
+    case ID_SHIFTCOL: return g_settings.shift_col;
     case ID_RPMMAX:
         for (int i = 0; i < 5; i++) {
             if (RPM_MAX_OPTS[i] == g_settings.rpm_max) {
@@ -120,6 +122,7 @@ static int enum_count(set_id_t id)
     case ID_VIEW:   return 2;
     case ID_GEAR:   return 2;
     case ID_ACCENT: return SETTINGS_ACCENT_COUNT < ENUM_MAX ? SETTINGS_ACCENT_COUNT : ENUM_MAX;
+    case ID_SHIFTCOL: return SETTINGS_SHIFT_COL_COUNT < ENUM_MAX ? SETTINGS_SHIFT_COL_COUNT : ENUM_MAX;
     case ID_INCL:   return 2;
     case ID_RPMMAX: return 5;
     case ID_FUEL:   return SETTINGS_FUEL_COUNT < ENUM_MAX ? SETTINGS_FUEL_COUNT : ENUM_MAX;
@@ -149,6 +152,7 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
     case ID_BRIGHT: snprintf(buf, len, "%d %%", v); break;
     case ID_ROTATE: snprintf(buf, len, "%d°", v); break;
     case ID_SHIFT:  snprintf(buf, len, "%d rpm", v); break;
+    case ID_SHIFTCOL: snprintf(buf, len, "%s", SETTINGS_SHIFT_COLS[v].name); break;
     case ID_RPMMAX: snprintf(buf, len, "%d rpm", RPM_MAX_OPTS[v]); break;
     case ID_FUEL:   snprintf(buf, len, "%s %.1f", SETTINGS_FUELS[v].name, SETTINGS_FUELS[v].stoich); break;
     case ID_PRESS:  snprintf(buf, len, "%s", v ? "Boost bar" : "MAP kPa"); break;
@@ -182,22 +186,23 @@ static void refresh_rows(void)
 /** Writes the edited value, stores it and applies it. */
 static void commit(set_id_t id, int v)
 {
-    bool rebuild = false, rescan = false;
+    bool rebuild = false, drive = false, rescan = false;    // drive: sadece sürüş + odak sayfası
     switch (id) {
-    case ID_GAUGE:  g_settings.gauge = v; rebuild = true; break;
-    case ID_VIEW:   g_settings.main_view = v; rebuild = true; break;
-    case ID_GEAR:   g_settings.gear_big = v; rebuild = true; break;
-    case ID_ACCENT: g_settings.accent = v; rebuild = true; break;
+    case ID_GAUGE:  g_settings.gauge = v; drive = true; break;
+    case ID_VIEW:   g_settings.main_view = v; drive = true; break;
+    case ID_GEAR:   g_settings.gear_big = v; drive = true; break;
+    case ID_ACCENT: g_settings.accent = v; drive = true; break;
     case ID_DIG1:
     case ID_DIG2:
     case ID_DIG3:
-    case ID_DIG4:   g_settings.dig_ch[id - ID_DIG1] = v; rebuild = true; break;
+    case ID_DIG4:   g_settings.dig_ch[id - ID_DIG1] = v; drive = true; break;
     case ID_INCL:   g_settings.incl_page = v; rebuild = true; break;
     case ID_INCL_WARN: g_settings.incl_warn = v; break;
     case ID_BRIGHT: g_settings.brightness = v; board_lcd_set_backlight(v); break;
     case ID_ROTATE: g_settings.rotation = v; dash_ui_set_rotation(v); break;
-    case ID_SHIFT:  g_settings.shift_rpm = v; rebuild = true; break;
-    case ID_RPMMAX: g_settings.rpm_max = RPM_MAX_OPTS[v]; rebuild = true; break;
+    case ID_SHIFT:  g_settings.shift_rpm = v; drive = true; break;
+    case ID_SHIFTCOL: g_settings.shift_col = v; drive = true; break;
+    case ID_RPMMAX: g_settings.rpm_max = RPM_MAX_OPTS[v]; drive = true; break;
     case ID_FUEL:   g_settings.fuel = v; rebuild = true; break;
     case ID_PRESS:  g_settings.pressure = v; rebuild = true; break;
     case ID_PROTO:  rescan = g_settings.proto != v; g_settings.proto = v; break;
@@ -215,6 +220,8 @@ static void commit(set_id_t id, int v)
         ui_request_rescan();
     } else if (rebuild) {
         ui_request_rebuild();
+    } else if (drive) {
+        ui_request_drive_rebuild();
     }
 }
 

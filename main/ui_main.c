@@ -4,7 +4,7 @@
  * kısa bir iz bırakır, tepe değeri beyaz segmentte bir süre kalır. Üstünde turuncu bıçak ibre yay fiziğiyle
  * oturur (hafif aşma), hızlı dönüşte arkasında iz kalır. Ortada vites (hız / devir oranından), altında büyük
  * değer (hız ya da devir, dokununca değişir) ve küçük olanı. Üstteki 7 ışık vites noktasına yaklaşırken
- * yeşil -> sarı -> kırmızı dolar, noktada hepsi mavi flaş yapar, halka ve kenar da yanıp söner.
+ * dolar (renk takımı Ayarlar > Vites ışığı rengi), noktada hepsi flaş yapar, halka ve kenar da yanıp söner.
  * Motor soğukken izin verilen devrin üstü buz mavisi, vites ışıkları o sınıra göre yanar.
  * Rozet satırı: bağlantı / arıza durumu, MÜKEMMEL / GEÇ / ERKEN VİTES, 0-100 süresi, YAKIT KESİK, MOTOR SOĞUK.
  * Ekran ilk açıldığında ve ECU bağlanınca ibre bir tur atar.
@@ -17,7 +17,10 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_heap_caps.h"
+#include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "board_lcd.h"
 #include "ui_priv.h"
 
@@ -59,10 +62,11 @@
 #define BADGE_US        (1800 * 1000)
 #define RESULT_US       (8000 * 1000)
 #define RUN_MAX_US      (40 * 1000 * 1000)
-#define REV_WINDOW_US   (1500 * 1000)
+#define REV_WINDOW_US   (2500 * 1000)   // devir tepesi: vites geçişi + onay süresini kapsar
+#define SHIFT_GAP_US    (1500 * 1000)   // vites geçişinde N'de kalınabilecek süre
+#define WOT_RECENT_US   (2000 * 1000)   // geçişten önce tam gaz bu kadar yakın olmalı
 #define WOT_KPA         85          // MAP bunun üstü: tam gaz
 #define CUT_KPA         32          // gaz kapalı, yüksek vakum: yakıt kesik
-#define CLT_COLD        60
 #define CLT_LO          40
 #define CLT_HI          130
 #define POD_MAX         2
@@ -77,11 +81,16 @@
 // ---------------------------------------------------------------------------
 // Pişirilmiş kadran (PSRAM), ayarlar değişmedikçe sayfa yeniden kurulsa da korunur
 // ---------------------------------------------------------------------------
+// pişirme ~0.5 sn sürer: LVGL görevini bekletmesin diye çekirdek 0'da düşük öncelikli görevde yapılır
 static struct {
     lv_img_dsc_t off;
     lv_img_dsc_t lit;
-    int rpm_max;
-    int shift;
+    volatile int rpm_max;       // hazır görüntünün anahtarı, 0 = henüz yok
+    volatile int shift;
+    volatile int want_max;      // istenen anahtar
+    volatile int want_shift;
+    volatile uint32_t gen;      // her bitişte artar: sayfa bir kez yeniden çizilir
+    TaskHandle_t task;
 } bake;
 
 typedef struct {
@@ -114,13 +123,13 @@ static lv_color_t to_color(rgbf_t c)
 }
 
 /** Segment rengi, segmentin başladığı devre göre. */
-static rgbf_t seg_rgb(int rpm, bool lit)
+static rgbf_t seg_rgb(int rpm, bool lit, int shift)
 {
-    const int warn = bake.shift - SHIFT_LEAD;
+    const int warn = shift - SHIFT_LEAD;
     if (!lit) {
-        return hexf(rpm >= bake.shift ? 0x3A1216 : 0x171B23);
+        return hexf(rpm >= shift ? 0x3A1216 : 0x171B23);
     }
-    if (rpm >= bake.shift) {
+    if (rpm >= shift) {
         return hexf(0xFF2A2A);
     }
     if (rpm >= warn) {
@@ -132,7 +141,8 @@ static rgbf_t seg_rgb(int rpm, bool lit)
 static bool bake_alloc(lv_img_dsc_t *d)
 {
     if (d->data == NULL) {
-        void *px = heap_caps_malloc(SCR_W * SCR_H * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        // siyahla başlar: pişme bitmeden görünürse çöp piksel olmasın
+        void *px = heap_caps_calloc(1, SCR_W * SCR_H * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (px == NULL) {
             return false;
         }
@@ -145,17 +155,9 @@ static bool bake_alloc(lv_img_dsc_t *d)
     return true;
 }
 
-/** Kadranı sönük ve yanık iki görüntüye çizer (piksel piksel, bir kez). */
-static bool bake_dial(int rpm_max, int shift)
+/** Kadranı sönük ve yanık iki görüntüye çizer (piksel piksel). İstek değişirse yarıda bırakır: false. */
+static bool bake_render(int rpm_max, int shift)
 {
-    if (bake.rpm_max == rpm_max && bake.shift == shift) {
-        return true;
-    }
-    if (!bake_alloc(&bake.off) || !bake_alloc(&bake.lit)) {
-        return false;
-    }
-    bake.rpm_max = rpm_max;
-    bake.shift = shift;
     lv_color_t *off = (lv_color_t *)bake.off.data;
     lv_color_t *lit = (lv_color_t *)bake.lit.data;
     const float deg_per_rpm = SPAN / rpm_max;
@@ -166,6 +168,12 @@ static bool bake_dial(int rpm_max, int shift)
     const float half = (R_LED_OUT - R_LED_IN) / 2.0f;
 
     for (int y = 0; y < SCR_H; y++) {
+        if (bake.want_max != rpm_max || bake.want_shift != shift) {
+            return false;
+        }
+        if ((y & 31) == 0) {
+            vTaskDelay(1);      // boşta görevi de çalışsın (görev bekçisi)
+        }
         for (int x = 0; x < SCR_W; x++) {
             const int i = y * SCR_W + x;
             const float dx = x + 0.5f - CX, dy = y + 0.5f - CY;
@@ -220,9 +228,9 @@ static bool bake_dial(int rpm_max, int shift)
                 const int seg_rpm = seg * SEG_RPM;
                 if (cov > 0) {
                     const float bevel = 0.8f + 0.4f * (r - R_LED_IN) / (R_LED_OUT - R_LED_IN);
-                    o = mixf(o, scalef(seg_rgb(seg_rpm, false), bevel), cov);
+                    o = mixf(o, scalef(seg_rgb(seg_rpm, false, shift), bevel), cov);
                     const float mid = clamp01(1 - fabsf(r - r_mid) / half);
-                    rgbf_t lc = mixf(seg_rgb(seg_rpm, true), white, 0.45f * mid * mid * mid);    // sıcak çekirdek
+                    rgbf_t lc = mixf(seg_rgb(seg_rpm, true, shift), white, 0.45f * mid * mid * mid);    // sıcak çekirdek
                     l = mixf(l, scalef(lc, 0.72f + 0.28f * mid), cov);
                 }
 
@@ -231,13 +239,55 @@ static bool bake_dial(int rpm_max, int shift)
                 const float ends = clamp01(u * DEG * r / 6) * clamp01((SPAN - u) * DEG * r / 6 + 0.3f);
                 const float glow = 0.5f * expf(-dr / 6.0f) * (1 - cov) * ends;
                 if (glow > 0.004f) {
-                    const rgbf_t g = scalef(seg_rgb(seg_rpm, true), glow);
+                    const rgbf_t g = scalef(seg_rgb(seg_rpm, true, shift), glow);
                     l = (rgbf_t){l.r + g.r, l.g + g.g, l.b + g.b};
                 }
             }
             off[i] = to_color(o);
             lit[i] = to_color(l);
         }
+    }
+    return true;
+}
+
+static void bake_task(void *arg)
+{
+    while (1) {
+        const int mx = bake.want_max, sh = bake.want_shift;
+        if (mx == bake.rpm_max && sh == bake.shift) {
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            continue;
+        }
+        const int64_t t0 = esp_timer_get_time();
+        if (bake_render(mx, sh)) {
+            bake.rpm_max = mx;
+            bake.shift = sh;
+            bake.gen++;
+            ESP_LOGI("ui_main", "kadran pişti: %d ms (arka planda)", (int)((esp_timer_get_time() - t0) / 1000));
+        }
+    }
+}
+
+/**
+ * Kadran görüntüsünü ister. Görüntü nesnesi hemen kurulabilir; içerik arka planda pişer, bitince sayfa bir
+ * kez yeniden çizilir (frame). Önceki pişmiş kadran o sırada yerinde kalır. Bellek yoksa false.
+ */
+static bool bake_dial(int rpm_max, int shift)
+{
+    if (!bake_alloc(&bake.off) || !bake_alloc(&bake.lit)) {
+        return false;
+    }
+    if (bake.rpm_max == rpm_max && bake.shift == shift) {
+        return true;
+    }
+    bake.want_max = rpm_max;
+    bake.want_shift = shift;
+    if (bake.task == NULL) {
+        if (xTaskCreatePinnedToCore(bake_task, "bake", 4096, NULL, 1, &bake.task, 0) != pdPASS) {
+            return false;
+        }
+    } else {
+        xTaskNotifyGive(bake.task);
     }
     return true;
 }
@@ -263,6 +313,8 @@ static struct {
     lv_obj_t *ring;
     lv_obj_t *needle;
     lv_obj_t *dots[SHIFT_DOTS];
+    lv_color_t sc[4];       // vites ışığı renkleri: 3 dolma + flaş (ayardan)
+    ui_shift_t sh;
     lv_obj_t *status;
     lv_obj_t *gear;
     bool gear_big;          // ayar: ortada büyük vites; değilse vites küçük kutucukta, ortada devir/hız
@@ -284,6 +336,7 @@ static struct {
     bool has_lh;
     bool speed_view;
     bool baked;
+    uint32_t bake_gen;      // ekrana çizilmiş pişirme turu
 
     int rpm_max;
     int shift;
@@ -314,7 +367,10 @@ static struct {
     // vites ve rozetler
     int gear_shown;
     int64_t gear_t;
-    float rev_max;
+    int gear_prev;          // son gerçek vites (N geçişinde de vites notu verilebilsin)
+    int64_t gear_prev_t;
+    float rev_max;          // son ECU devir örneklerinin tepesi (ibre aşması / tahmin dahil değil)
+    int64_t rev_us;
     int64_t rev_t;
     const char *badge;
     lv_color_t badge_col;
@@ -426,7 +482,7 @@ static void ring_draw_cb(lv_event_t *e)
     draw_lit(ctx, s->lit, s->trail, LV_OPA_40);
     if (s->flash) {
         for (int i = 0; i < s->lit; i++) {
-            draw_seg(ctx, i, C_FLASH, LV_OPA_90, SEG_FILL);
+            draw_seg(ctx, i, m.sc[3], LV_OPA_90, SEG_FILL);
         }
     } else if (s->lit > 0 && s->head) {
         draw_seg(ctx, s->lit - 1, lv_color_white(), s->head, SEG_FILL);
@@ -487,6 +543,16 @@ static void needle_draw_cb(lv_event_t *e)
 }
 
 /** Değişen açı aralığını geçersiz kılar, sadece o kısım yeniden çizilir. */
+/** Dış halkanın [a0, a1] aralığını 30°'lik dilimlerle geçersiz kılar: halkanın sınır kutusu tüm ekran olurdu. */
+static void rim_invalidate(float a0, float a1)
+{
+    for (float a = a0; a < a1; a += 30) {
+        lv_area_t ar;
+        sector_area(a, fminf(a + 30, a1), R_LED_IN - 4, CX, &ar);
+        lv_obj_invalidate_area(m.ring, &ar);
+    }
+}
+
 static void ring_commit(void)
 {
     const ring_state_t *o = &m.st, *n = &m.nx;
@@ -510,9 +576,6 @@ static void ring_commit(void)
             TOUCH_SEG(n->peak, n->peak + 1);
         }
     }
-    if (o->flash != n->flash) {
-        TOUCH_SEG(0, LV_MAX(o->lit, n->lit));
-    }
     if (o->frozen != n->frozen) {
         TOUCH_SEG(LV_MIN(o->frozen, n->frozen), m.nseg);
     }
@@ -527,9 +590,13 @@ static void ring_commit(void)
             hi = fmaxf(hi, fmaxf(o->ang[i], n->ang[i]) + 2);
         }
     }
+    // vites flaşı: tam ekran değil, sadece dış halka (segmentler + kenar) dilim dilim (~%30 piksel)
     if (o->vign != n->vign) {
-        lv_obj_invalidate(m.scr);
-    } else if (hi > lo) {
+        rim_invalidate(0, 360);
+    } else if (o->flash != n->flash) {
+        rim_invalidate(A0, rpm_ang(LV_MAX(o->lit, n->lit) * SEG_RPM));
+    }
+    if (hi > lo) {
         lv_area_t a;
         sector_area(lo, hi, R_NDL_IN - 8, CX, &a);
         lv_obj_invalidate_area(m.ring, &a);
@@ -577,7 +644,7 @@ bool ui_main_toggle_view(void)
     }
     g_settings.main_view = m.speed_view ? SET_VIEW_RPM : SET_VIEW_SPEED;
     settings_save();
-    ui_request_rebuild();
+    ui_request_drive_rebuild();
     return true;
 }
 
@@ -661,6 +728,7 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
     m.shift = g_settings.shift_rpm;
     m.nseg = m.rpm_max / SEG_RPM;
     m.baked = bake_dial(m.rpm_max, m.shift);
+    m.bake_gen = bake.gen;
 
     if (m.baked) {
         lv_obj_set_style_bg_opa(scr, LV_OPA_TRANSP, 0);    // kadran görüntüsü her pikseli boyar
@@ -761,6 +829,13 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
     m.last_us = 0;
     m.sweep_t0 = 0;
     m.gear_shown = 0;
+    m.gear_prev = 0;
+    m.rev_max = 0;
+    m.rev_us = 0;
+    m.sh = (ui_shift_t){0};
+    for (int i = 0; i < 4; i++) {
+        m.sc[i] = ui_shift_color(i);
+    }
     m.badge = NULL;
     m.result_t = 0;
     m.run = RUN_IDLE;
@@ -844,8 +919,13 @@ static void gear_update(int g, int64_t now, int eff_shift)
     if (g == m.gear_shown || !m.has_speed) {
         return;
     }
-    // tam gazda bir üst vites: devrin tepe noktasına göre not
-    if (g == m.gear_shown + 1 && m.gear_shown >= 1 && now - m.wot_t < 1200 * 1000) {
+    // tam gazda bir üst vites: devrin tepe noktasına göre not. Geçiş uzun sürüp araya N girse de sayılır
+    const int from = m.gear_shown ? m.gear_shown : now - m.gear_prev_t < SHIFT_GAP_US ? m.gear_prev : 0;
+    if (m.gear_shown) {
+        m.gear_prev = m.gear_shown;
+        m.gear_prev_t = now;
+    }
+    if (from >= 1 && g == from + 1 && now - m.wot_t < WOT_RECENT_US) {
         const float d = m.rev_max - eff_shift;
         if (fabsf(d) <= 350) {
             badge_set("MÜKEMMEL VİTES", C_OK, now);
@@ -906,6 +986,11 @@ static void frame(bool force)
     if (m.sweep_t0 == 0 && lv_scr_act() == m.scr) {
         m.sweep_t0 = now;
     }
+    // kadran arka planda yeni pişti: bir kez tamamen yeniden çiz
+    if (m.baked && m.bake_gen != bake.gen) {
+        m.bake_gen = bake.gen;
+        lv_obj_invalidate(m.scr);
+    }
 
     ui_motion_t mo;
     ui_motion_get(now, &mo);
@@ -948,20 +1033,15 @@ static void frame(bool force)
     } else if (now - m.peak_t > PEAK_HOLD_US) {
         m.peak_v = fmaxf(pos, m.peak_v - PEAK_DROP * dt);
     }
-    if (pos >= m.rev_max || now - m.rev_t > REV_WINDOW_US) {
-        m.rev_max = pos;
-        m.rev_t = now;
-    }
-
     // soğuk motor: izin verilen devir 20 °C'de 3500, 60 °C'de vites noktası
-    int cold_limit = m.shift;
-    if (m.fresh && m.has_clt && !isnan(m.clt) && m.clt < CLT_COLD) {
-        cold_limit = (int)(3500 + (m.clt - 20) * 62.5f) / SEG_RPM * SEG_RPM;
-        cold_limit = LV_MAX(3500, LV_MIN(cold_limit, m.shift));
-    }
+    const int cold_limit = ui_shift_limit(m.shift, m.fresh && m.has_clt ? m.clt : NAN);
     const int eff_shift = cold_limit;
-    const bool shift = pos >= eff_shift && m.sweep_t0 < 0;
-    const bool blink = shift && ((now / BLINK_US) & 1);
+    // vites ışıkları devir tahmininden: ibrenin yay aşması sahte flaş yapmasın, gecikme olmasın.
+    // açılış turunda ibreyi izler ama flaş yapmaz
+    const bool sweeping = m.sweep_t0 >= 0;
+    const float srpm = sweeping ? pos : live ? mo.rpm : 0;
+    const bool shift = ui_shift_update(&m.sh, sweeping ? NAN : srpm, eff_shift, now);
+    const bool blink = ui_shift_blink(&m.sh, now, BLINK_US);
 
     ring_state_t *n = &m.nx;
     n->lit = (int)ceilf(pos / SEG_RPM - 0.02f);
@@ -982,14 +1062,14 @@ static void frame(bool force)
     m.hist[0] = n->ang[0];
     ring_commit();
 
-    // vites ışıkları
+    // vites ışıkları: renkler Ayarlar > Vites ışığı rengi
     const float step = (float)SHIFT_LEAD / SHIFT_DOTS;
     for (int i = 0; i < SHIFT_DOTS; i++) {
         lv_color_t c = C_DOT_OFF;
         if (shift) {
-            c = blink ? C_FLASH : C_DOT_OFF;
-        } else if (pos >= eff_shift - SHIFT_LEAD + i * step) {
-            c = i < 2 ? C_OK : i < 5 ? C_WARN : C_ALERT;
+            c = blink ? m.sc[3] : C_DOT_OFF;
+        } else if (srpm >= eff_shift - SHIFT_LEAD + i * step) {
+            c = m.sc[i < 2 ? 0 : i < 5 ? 1 : 2];
         }
         if (lv_obj_get_style_bg_color(m.dots[i], 0).full != c.full) {
             lv_obj_set_style_bg_color(m.dots[i], c, 0);
@@ -1025,7 +1105,7 @@ static void frame(bool force)
         gc = blink ? C_ALERT : C_TEXT;
     } else if (now - m.gear_t < 250 * 1000) {
         gc = C_FLASH;
-    } else if (pos >= eff_shift - SHIFT_LEAD) {
+    } else if (srpm >= eff_shift - SHIFT_LEAD) {
         gc = C_WARN;
     }
     set_color(m.gear, gc);
@@ -1044,6 +1124,14 @@ void ui_main_update(const vems_data_t *d, bool fresh)
         ui_motion_feed(d);
     }
     const int64_t now = esp_timer_get_time();
+    // vites notu için devir tepesi: sadece gerçek ECU örnekleri
+    if (fresh && d->rpm_us && d->rpm_us != m.rev_us) {
+        m.rev_us = d->rpm_us;
+        if (d->rpm >= m.rev_max || now - m.rev_t > REV_WINDOW_US) {
+            m.rev_max = d->rpm;
+            m.rev_t = now;
+        }
+    }
     m.mil_on = fresh && d->mil_on;
     m.mil_codes = fresh ? d->mil_codes : 0;
     m.clt = fresh ? d->clt_c : NAN;

@@ -113,8 +113,22 @@ void ui_motion_reset(void);
 void ui_motion_feed(const vems_data_t *d);              // yeni çerçeve: yeni devir / hız örneği varsa filtreye
 void ui_motion_get(int64_t now, ui_motion_t *out);
 
+// ---- vites ışığı (ui_motion.c): iki sürüş sayfasında aynı kural ----
+#define UI_SHIFT_HYST   150         // rpm: flaş noktanın bu kadar altına inmeden sönmez (eşikte titreme yok)
+
+typedef struct {
+    bool on;
+    int64_t t0;             // flaşın başladığı an: ilk faz hep yanık
+} ui_shift_t;
+
+int ui_shift_limit(int shift_rpm, float clt);           // soğuk motorda düşürülmüş vites noktası
+bool ui_shift_update(ui_shift_t *s, float rpm, int limit, int64_t now);
+bool ui_shift_blink(const ui_shift_t *s, int64_t now, int64_t period_us);
+lv_color_t ui_shift_color(int stage);                   // 0..2 dolma sırası, 3 flaş (Ayarlar > Vites ışığı rengi)
+
 // ---- services of the screen manager (dash_ui.c), safe to call from widget events ----
 void ui_request_rebuild(void);          // a setting changed the page layout
+void ui_request_drive_rebuild(void);    // sadece sürüş + odak sayfası (gösterge ayarı): diğer sayfalar kalır
 void ui_request_rescan(void);           // drop the connection, show the boot screen again
 void dash_ui_set_rotation(uint16_t deg); // ekranı 0..359° döndürür (LVGL görevinden çağrılır)
 void ui_request_dtc_page(void);         // arıza kodları sayfasına geç (uyarı şeridi)

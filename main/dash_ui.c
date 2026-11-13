@@ -59,7 +59,8 @@ static struct {
     int64_t last_switch;
     uint32_t layout_mask;       // channels the pages were built for (0 = typical set before the first connection)
     bool rebuild_req;
-    bool digital;               // sürüş sayfası dijital (sayfalar kurulurken ayardan)
+    bool rebuild_drive_req;     // sadece sürüş + odak sayfası
+    bool digital;              // sürüş sayfası dijital (sayfalar kurulurken ayardan)
     bool rescan_req;
     bool dtc_req;
     vems_data_t d;             // latest frame, shared by the update of every page
@@ -203,7 +204,10 @@ static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *colo
         } else {
             board_lcd_present(color_map);       // color_map bir panel frame buffer'ı
             rot.glass = color_map;
-            sync_back_buffer(color_map);
+            // geçiş kaydırmasında her kare zaten tam ekran çizilir: 460 KB'lık kopya boşa olurdu
+            if (!tr.active) {
+                sync_back_buffer(color_map);
+            }
         }
     }
     lv_disp_flush_ready(drv);
@@ -465,6 +469,36 @@ static void page_update(int idx)
 
 static void page_event_cb(lv_event_t *e);
 
+static lv_obj_t *page_create_ev(page_type_t type, int idx, int count)
+{
+    lv_obj_t *p = page_create(type, idx, count);
+    lv_obj_add_event_cb(p, page_event_cb, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(p, page_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(p, page_event_cb, LV_EVENT_LONG_PRESSED, NULL);
+    return p;
+}
+
+/**
+ * Sadece sürüş ve odak sayfasını yeniden kurar (gösterge ayarları). Ayarlar sayfası ve diğerleri yerinde
+ * kalır: tüm sayfaları baştan kurmanın takılması olmaz.
+ */
+static void pages_rebuild_drive(void)
+{
+    for (int i = 0; i < ui.count; i++) {
+        if (ui.type[i] != PG_DRIVE && ui.type[i] != PG_FOCUS) {
+            continue;
+        }
+        lv_obj_t *old = ui.pages[i];
+        ui.digital = g_settings.gauge == SET_GAUGE_DIGITAL;
+        ui.pages[i] = page_create_ev(ui.type[i], i, ui.count);
+        if (i == ui.page && !ui.in_splash) {
+            page_update(i);
+            lv_scr_load(ui.pages[i]);
+        }
+        lv_obj_del(old);
+    }
+}
+
 /** (Re)creates every page for ui.layout_mask, keeps the same kind of page on the glass. */
 static void pages_build(void)
 {
@@ -492,10 +526,7 @@ static void pages_build(void)
     ui.page = 0;
     for (int i = 0; i < n; i++) {
         ui.type[i] = list[i];
-        ui.pages[i] = page_create(list[i], i, n);
-        lv_obj_add_event_cb(ui.pages[i], page_event_cb, LV_EVENT_GESTURE, NULL);
-        lv_obj_add_event_cb(ui.pages[i], page_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
-        lv_obj_add_event_cb(ui.pages[i], page_event_cb, LV_EVENT_LONG_PRESSED, NULL);
+        ui.pages[i] = page_create_ev(list[i], i, n);
         if (list[i] == cur) {
             ui.page = i;
         }
@@ -572,6 +603,11 @@ void ui_request_rebuild(void)
     ui.rebuild_req = true;
 }
 
+void ui_request_drive_rebuild(void)
+{
+    ui.rebuild_drive_req = true;
+}
+
 void ui_request_rescan(void)
 {
     ui.rescan_req = true;
@@ -607,7 +643,8 @@ static void ui_update_cb(lv_timer_t *timer)
     const bool have = vems_get_latest(&ui.d);
     // yeni çerçeve gelir gelmez çiz; yoksa UI_UPDATE_MS'de bir (açılış ekranı sadece bu hızda)
     const bool new_data = have && ui.d.seq != last_seq && !ui.in_splash;
-    if (!new_data && now - last_us < UI_UPDATE_MS * 1000 && !ui.rescan_req && !ui.rebuild_req) {
+    if (!new_data && now - last_us < UI_UPDATE_MS * 1000 && !ui.rescan_req && !ui.rebuild_req &&
+        !ui.rebuild_drive_req) {
         return;
     }
     last_seq = have ? ui.d.seq : 0;
@@ -655,7 +692,13 @@ static void ui_update_cb(lv_timer_t *timer)
             ui.layout_mask = mask;
         }
         ui.rebuild_req = false;
+        ui.rebuild_drive_req = false;
         pages_build();
+        return;
+    }
+    if (ui.rebuild_drive_req && !ui_busy()) {
+        ui.rebuild_drive_req = false;
+        pages_rebuild_drive();
         return;
     }
     if (ui.dtc_req && !ui_busy()) {

@@ -34,6 +34,16 @@ const settings_accent_t SETTINGS_ACCENTS[] = {
 };
 const int SETTINGS_ACCENT_COUNT = sizeof(SETTINGS_ACCENTS) / sizeof(SETTINGS_ACCENTS[0]);
 
+// yeni takım sona eklenir (kayıtlı indeks bozulmasın)
+const settings_shift_col_t SETTINGS_SHIFT_COLS[] = {
+    {"Klasik", 0x2ED47A, 0xFFC21A, 0xFF3B30, 0x4FB4FF},     // yeşil, sarı, kırmızı, mavi flaş
+    {"F1", 0x2ED47A, 0xFF3B30, 0x3D5BFF, 0x3D5BFF},         // yeşil, kırmızı, mavi
+    {"Vurgu rengi", 0, 0, 0, 0xFFFFFF},
+    {"Kırmızı", 0xFF3B30, 0xFF3B30, 0xFF3B30, 0xFFFFFF},
+    {"Beyaz", 0xF4F5F7, 0xF4F5F7, 0xF4F5F7, 0xFF3B30},
+};
+const int SETTINGS_SHIFT_COL_COUNT = sizeof(SETTINGS_SHIFT_COLS) / sizeof(SETTINGS_SHIFT_COLS[0]);
+
 // sıra ayarlar sayfasındaki - / + sırası; yeni veri sona eklenir (kayıtlı indeksler bozulmasın)
 const uint8_t SETTINGS_DIG_CH[] = {
     CH_CLT, CH_FUEL_L100, CH_BATT, CH_MAP, CH_FUEL_LH, CH_BOOST, CH_IAT, CH_TPS, CH_LOAD, CH_ADV, CH_AFR, CH_O2V,
@@ -100,7 +110,8 @@ static bool valid(const settings_t *s)
            s->main_view <= SET_VIEW_SPEED && s->rotation < 360 && s->ble <= 1 && s->gear_big <= 1 &&
            s->gauge <= SET_GAUGE_DIGITAL && s->accent < SETTINGS_ACCENT_COUNT && s->dig_ch[0] < SETTINGS_DIG_CH_COUNT &&
            s->dig_ch[1] < SETTINGS_DIG_CH_COUNT && s->dig_ch[2] < SETTINGS_DIG_CH_COUNT &&
-           s->dig_ch[3] < SETTINGS_DIG_CH_COUNT && s->incl_page <= 1 && s->incl_warn >= 10 && s->incl_warn <= 45;
+           s->dig_ch[3] < SETTINGS_DIG_CH_COUNT && s->incl_page <= 1 && s->incl_warn >= 10 && s->incl_warn <= 45 &&
+           s->shift_col < SETTINGS_SHIFT_COL_COUNT;
 }
 
 static TaskHandle_t s_saver;            // arka plan kayıt görevi (aşağıda)
@@ -135,9 +146,9 @@ void settings_init(void)
         }
         nvs_close(h);
     }
-    ESP_LOGI(TAG, "brightness %u%%, shift %u/%u rpm, fuel %s, proto %u",
+    ESP_LOGI(TAG, "brightness %u%%, shift %u/%u rpm, fuel %s, proto %u, gauge %u",
              g_settings.brightness, g_settings.shift_rpm, g_settings.rpm_max,
-             SETTINGS_FUELS[g_settings.fuel].name, g_settings.proto);
+             SETTINGS_FUELS[g_settings.fuel].name, g_settings.proto, g_settings.gauge);
     xTaskCreatePinnedToCore(saver_task, "settings", 3072, NULL, 1, &s_saver, 0);
 }
 

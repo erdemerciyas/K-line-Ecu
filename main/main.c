@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "driver/usb_serial_jtag.h"
 #include "vems_proto.h"
 #include "settings.h"
 #include "srclog.h"
@@ -31,6 +32,10 @@ static void print_task(void *arg)
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(CONFIG_VEMS_PRINT_INTERVAL_MS));
+        // araçta USB'ye bilgisayar bağlı değil: yazacak kimse yok, çıktı bekletmesin
+        if (!usb_serial_jtag_is_connected()) {
+            continue;
+        }
         if (!vems_get_latest(&d)) {
             continue;
         }

@@ -243,7 +243,10 @@ static void timer_cb(lv_timer_t *t)
 static void scr_delete_cb(lv_event_t *e)
 {
     lv_timer_del(lv_event_get_user_data(e));
-    in.scr = NULL;
+    // yeniden kurulumda eski ekran yenisi oluştuktan sonra silinir: yeni ekranı unutma
+    if (lv_event_get_target(e) == in.scr) {
+        in.scr = NULL;
+    }
 }
 
 lv_obj_t *ui_incline_create(int page, int pages)

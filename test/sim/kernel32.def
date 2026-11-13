@@ -1,0 +1,10 @@
+LIBRARY kernel32.dll
+EXPORTS
+CreateThread
+CreateEventA
+SetEvent
+WaitForSingleObject
+Sleep
+ExitThread
+GetCurrentThreadId
+GetCommandLineA

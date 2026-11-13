@@ -11,3 +11,4 @@ sdkconfig.old
 *.swp
 .DS_Store
 Thumbs.db
+test/sim/out/

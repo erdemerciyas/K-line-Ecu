@@ -502,6 +502,13 @@ static void pages_rebuild_drive(void)
 /** (Re)creates every page for ui.layout_mask, keeps the same kind of page on the glass. */
 static void pages_build(void)
 {
+    // tema değiştiyse üstteki uyarı katmanı da yeni renklerle kurulur
+    static int theme = -1;
+    if (theme >= 0 && theme != g_settings.theme) {
+        ui_alert_theme();
+    }
+    theme = g_settings.theme;
+
     lv_obj_t *old[PAGE_MAX];
     const int old_count = ui.count;
     const page_type_t cur = old_count ? ui.type[ui.page] : PG_DRIVE;

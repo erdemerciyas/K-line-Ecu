@@ -59,8 +59,13 @@ static struct {
     float value;
 } al[AL_COUNT];
 
+#define HALO_R          236         // uyarı halesi: dış kenar çizgisi ve içe doğru parıltı
+#define HALO_GLOW       22
+
 static struct {
     lv_obj_t *card;
+    lv_obj_t *halo;
+    bool halo_lit;
     lv_obj_t *card_title;
     lv_obj_t *card_val;
     lv_obj_t *card_msg;
@@ -220,10 +225,11 @@ static void view_update(int64_t now)
         snprintf(buf, sizeof(buf), "%.0f", al[card].value);
         ui_label_set(u.card_val, buf);
         ui_label_set(u.card_msg, DEF[card].advice);
-        // kırmızı çerçeve 2 Hz yanıp söner
-        const lv_opa_t opa = ((now / 250000) & 1) ? LV_OPA_COVER : LV_OPA_30;
-        if (lv_obj_get_style_border_opa(u.card, 0) != opa) {
-            lv_obj_set_style_border_opa(u.card, opa, 0);
+        // kırmızı hale 2 Hz yanıp söner: sadece kenar dilimleri yeniden çizilir (tüm ekran değil)
+        const bool lit = ((now / 250000) & 1) != 0;
+        if (lit != u.halo_lit) {
+            u.halo_lit = lit;
+            ui_ring_invalidate(u.halo, 0, 360, HALO_R - HALO_GLOW - 2, BOARD_LCD_H_RES / 2);
         }
     }
     show(u.card, card >= 0);
@@ -268,27 +274,53 @@ static void banner_cb(lv_event_t *e)
     view_update(esp_timer_get_time());
 }
 
-void ui_alert_init(void)
+/** Hale: dış kenarda kalın çizgi + içe doğru sönen parıltı; yanık değilken sönük çizgi. */
+static void halo_draw_cb(lv_event_t *e)
+{
+    lv_draw_ctx_t *ctx = lv_event_get_draw_ctx(e);
+    const lv_point_t c = {BOARD_LCD_H_RES / 2, BOARD_LCD_V_RES / 2};
+    lv_draw_arc_dsc_t d;
+    lv_draw_arc_dsc_init(&d);
+    d.color = C_ALERT;
+    if (u.halo_lit) {
+        static const lv_opa_t GLOW[] = {70, 40, 20, 8};
+        for (int i = 0; i < 4; i++) {
+            d.width = HALO_GLOW / 4;
+            d.opa = GLOW[i];
+            lv_draw_arc(ctx, &d, &c, HALO_R - 6 - i * HALO_GLOW / 4, 0, 360);
+        }
+    }
+    d.width = 8;
+    d.opa = u.halo_lit ? LV_OPA_COVER : LV_OPA_40;
+    lv_draw_arc(ctx, &d, &c, HALO_R + 2, 0, 360);
+}
+
+static void build(void)
 {
     lv_obj_t *top = lv_layer_top();
 
+    // kart tam örtücü: altındaki sayfa görünmez, sade kalır
     u.card = lv_obj_create(top);
     lv_obj_remove_style_all(u.card);
     lv_obj_set_size(u.card, BOARD_LCD_H_RES, BOARD_LCD_V_RES);
     lv_obj_center(u.card);
     lv_obj_set_style_radius(u.card, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(u.card, C_BG, 0);
-    lv_obj_set_style_bg_opa(u.card, 240, 0);
-    lv_obj_set_style_border_color(u.card, C_ALERT, 0);
-    lv_obj_set_style_border_width(u.card, 14, 0);
+    lv_obj_set_style_bg_opa(u.card, LV_OPA_COVER, 0);
     lv_obj_clear_flag(u.card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(u.card, card_cb, LV_EVENT_CLICKED, NULL);
 
+    u.halo = lv_obj_create(u.card);
+    lv_obj_remove_style_all(u.halo);
+    lv_obj_set_size(u.halo, BOARD_LCD_H_RES, BOARD_LCD_V_RES);
+    lv_obj_clear_flag(u.halo, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(u.halo, halo_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
+
     lv_obj_t *icon = ui_label(u.card, &lv_font_montserrat_48, C_ALERT, LV_SYMBOL_WARNING);
-    lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 66);
+    lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 60);
     u.card_title = ui_label(u.card, &ui_font_label_lg, C_ALERT, "");
     lv_obj_set_style_text_letter_space(u.card_title, 4, 0);
-    lv_obj_align(u.card_title, LV_ALIGN_TOP_MID, 0, 128);
+    lv_obj_align(u.card_title, LV_ALIGN_TOP_MID, 0, 122);
 
     lv_obj_t *row = lv_obj_create(u.card);
     lv_obj_remove_style_all(row);
@@ -297,20 +329,19 @@ void ui_alert_init(void)
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     lv_obj_set_style_pad_column(row, 6, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 162);
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 150);
     u.card_val = ui_label(row, &ui_font_big, C_TEXT, "");
-    ui_label(row, &ui_font_label_lg, C_ALERT, "°C");
+    lv_obj_t *deg = ui_label(row, &ui_font_label_lg, C_ALERT, "°C");
+    lv_obj_set_style_pad_bottom(deg, 12, 0);
 
-    u.card_msg = ui_label(u.card, &ui_font_label, C_SOFT, "");
+    u.card_msg = ui_label(u.card, &ui_font_label_lg, C_SOFT, "");
     lv_label_set_long_mode(u.card_msg, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(u.card_msg, 300);
+    lv_obj_set_width(u.card_msg, 316);
     lv_obj_set_style_text_align(u.card_msg, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_line_space(u.card_msg, 4, 0);
-    lv_obj_align(u.card_msg, LV_ALIGN_TOP_MID, 0, 250);
+    lv_obj_set_style_text_line_space(u.card_msg, 2, 0);
+    lv_obj_align(u.card_msg, LV_ALIGN_TOP_MID, 0, 254);
 
-    lv_obj_t *hint = ui_label(u.card, &ui_font_label, C_MUTED, "DOKUN · SESİ KAPAT");
-    lv_obj_set_style_text_letter_space(hint, 2, 0);
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 372);
+    ui_arc_text(u.card, &ui_font_label, C_MUTED, "DOKUN · SESİ KAPAT", 204, 90);
     lv_obj_add_flag(u.card, LV_OBJ_FLAG_HIDDEN);
 
     u.banner = lv_obj_create(top);
@@ -326,7 +357,22 @@ void ui_alert_init(void)
     lv_obj_center(u.banner_txt);
     lv_obj_add_flag(u.banner, LV_OBJ_FLAG_HIDDEN);
 
+}
+
+void ui_alert_init(void)
+{
+    build();
     lv_timer_create(buzzer_cb, 10, NULL);
+}
+
+void ui_alert_theme(void)
+{
+    // tema değişti: kart ve şerit yeni renklerle yeniden kurulur, durum bir sonraki güncellemede yerine gelir
+    lv_obj_del(u.card);
+    lv_obj_del(u.banner);
+    u.halo_lit = false;
+    u.bannered = -1;
+    build();
 }
 
 void ui_alert_update(const vems_data_t *d, bool fresh, uint32_t mask)

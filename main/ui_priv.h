@@ -6,59 +6,77 @@
 #include "vems_proto.h"
 #include "settings.h"
 
-// palette: siyah zemin, nötr mavi vurgu; kırmızı sadece alarm ve devir sınırı
-#define C_BG        lv_color_hex(0x000000)
-#define C_TRACK     lv_color_hex(0x16181D)
-#define C_TILE      lv_color_hex(0x0B0D11)
-#define C_TILE_BRD  lv_color_hex(0x22262E)
-#define C_LINE      lv_color_hex(0x15181D)
-#define C_TEXT      lv_color_hex(0xF4F5F7)
-#define C_SOFT      lv_color_hex(0xC9CFDA)
-#define C_MUTED     lv_color_hex(0x8A909C)
-#define C_TICK      lv_color_hex(0x4A505C)
-#define C_ACCENT    lv_color_hex(0x00C8FF)  // "cold" (CLT warm-up, economy zone)
-#define C_OK        lv_color_hex(0x2ED47A)
-#define C_WARN      lv_color_hex(0xFFB020)
-#define C_ALERT     lv_color_hex(0xFF3B30)
-#define C_PRIMARY   lv_color_hex(0x2D9CFF)  // vurgu: ibre, seçili öğe, kart şeridi
+/*
+ * HALKA renk rolleri. Her renk ui_col() süzgecinden geçer: tema (Ayarlar > Tema) gündüzde aynen, gecede kısık ve
+ * hafif soluk, kırmızı gecede tek renk kırmızı tonlarda. Kural: gri her şeydir, vurgu (C_PRIMARY, Ayarlar > Vurgu
+ * rengi) aracın şu anki halidir, iyi / dikkat / alarm renkleri sadece bir eşik aşılınca görünür.
+ */
+lv_color_t ui_col(uint32_t rgb);        // temaya göre renk
+lv_color_t ui_accent(void);             // ayardaki vurgu rengi, temaya göre
+
+#define C_BG        ui_col(0x000000)
+#define C_TRACK     ui_col(0x16181D)    // yay zemini, sönük segment
+#define C_TILE      ui_col(0x0D1015)    // yüzey: basılı satır, düğme
+#define C_TILE_BRD  ui_col(0x232832)    // yüzey kenarı
+#define C_LINE      ui_col(0x171A20)    // ayırıcı çizgi
+#define C_TEXT      ui_col(0xF3F5F8)    // birincil yazı: kahraman değer
+#define C_SOFT      ui_col(0xC4CAD4)    // ikincil değer
+#define C_MUTED     ui_col(0x8A919D)    // başlık, birim, veri yok
+#define C_TICK      ui_col(0x4E5562)    // üçüncül: ölçek rakamı, ipucu
+#define C_ACCENT    ui_col(0x00C8FF)    // soğuk (motor ısınıyor, ekonomi bölgesi)
+#define C_OK        ui_col(0x2ED47A)
+#define C_WARN      ui_col(0xFFB020)
+#define C_ALERT     ui_col(0xFF3B30)
+#define C_PRIMARY   ui_accent()         // vurgu: ibre, seçili öğe, vites, sayfa göstergesi
 
 
-// Rajdhani (OFL), generated with lv_font_conv; labels include the Turkish letters, ° · … ›
-LV_FONT_DECLARE(ui_font_big);       // 88 px bold, digits . + - : only
-LV_FONT_DECLARE(ui_font_value);     // 34 px bold, digits . + - : only
+// Barlow Semi Condensed (OFL), tools/gen_fonts.sh ile; rakamlar sabit genişlik (değer değişince sayı kaymaz)
+LV_FONT_DECLARE(ui_font_big);       // 104 px semibold, rakam . + - : % ° only
+LV_FONT_DECLARE(ui_font_display);   // 56 px bold, rakam . + - : % ° N R only (vites, büyük okuma)
+LV_FONT_DECLARE(ui_font_value);     // 34 px semibold, rakam . + - : % ° only
+LV_FONT_DECLARE(ui_font_title);     // 30 px semibold, falls back to Montserrat 24 for symbols
 LV_FONT_DECLARE(ui_font_label);     // 16 px semibold, falls back to Montserrat 14 for symbols
-LV_FONT_DECLARE(ui_font_label_lg);  // 22 px bold, falls back to Montserrat 16 for symbols
-LV_FONT_DECLARE(ui_font_gear);      // 150 px bold, vites: 1-6 N R - only
+LV_FONT_DECLARE(ui_font_label_lg);  // 22 px semibold, falls back to Montserrat 16 for symbols
+LV_FONT_DECLARE(ui_font_gear);      // 160 px bold, vites: 1-6 N R - only
 
-#define UI_TILE_W   104
-#define UI_TILE_H   58
-#define UI_COL_X0   76      // 3 tile columns that stay clear of the ring labels
-#define UI_COL_X1   188
-#define UI_COL_X2   300
+// HALKA geometrisi: taç (yazı / durum) dış kenarda, sayfa göstergesi altta kenarda
+#define UI_CROWN_R  206     // kavisli sayfa başlığının yarıçapı (dış halkası olmayan sayfalar)
+#define UI_DOTS_R   228     // kavisli sayfa göstergesi
 
+// okuma: kutusuz, ortalı başlık + değer (eski kutucukların yerine); yan yana olanların arasına ui_vline
 typedef struct {
-    lv_obj_t *box;
-    lv_obj_t *stripe;       // left accent bar, follows the value color when it is not plain
-    lv_obj_t *caption;
-    lv_obj_t *value;
+    lv_obj_t *cap;
+    lv_obj_t *val;
     char last[16];
-} ui_tile_t;
+} ui_readout_t;
 
 // ---- common helpers (ui_common.c) ----
 lv_obj_t *ui_screen_create(void);
 lv_obj_t *ui_label(lv_obj_t *parent, const lv_font_t *font, lv_color_t color, const char *txt);
 void ui_label_set(lv_obj_t *label, const char *txt);   // only invalidates on change
 void ui_text_color(lv_obj_t *o, lv_color_t c);         // yazı rengi, sadece değişince (yeniden çizim yok)
-void ui_tile_create(ui_tile_t *t, lv_obj_t *parent, int x, int y, const char *caption);
-void ui_tile_set(ui_tile_t *t, const char *txt, lv_color_t color);
-void ui_tile_set_num(ui_tile_t *t, const char *fmt, float v, lv_color_t color);  // NAN (not supported by the ECU) -> "--"
-void ui_page_dots(lv_obj_t *scr, int active, int count);
+void ui_readout_create(ui_readout_t *r, lv_obj_t *parent, const lv_font_t *font, int cx, int y, const char *caption);
+void ui_readout_set(ui_readout_t *r, const char *txt, lv_color_t color);
+void ui_readout_set_num(ui_readout_t *r, const char *fmt, float v, lv_color_t color);  // NAN -> "--"
+lv_obj_t *ui_vline(lv_obj_t *parent, int cx, int y, int h);             // ince dikey ayırıcı (cx: merkeze göre)
+void ui_page_dots(lv_obj_t *scr, int active, int count);                // alt kenarda kavisli sayfa göstergesi
 lv_obj_t *ui_ring_meter(lv_obj_t *scr);
 void ui_meter_label_div10_cb(lv_event_t *e);
-lv_obj_t *ui_header(lv_obj_t *scr, const char *txt, int y);            // small spaced page title
-lv_obj_t *ui_scroll_list(lv_obj_t *scr);                                // round-safe vertical list area
+/** Kavisli yazı: merkezi deg açısında (270 = üst, 90 = alt; altta harfler ters dönmez), r yarıçaplı çember üstünde. */
+lv_obj_t *ui_arc_text(lv_obj_t *parent, const lv_font_t *font, lv_color_t color, const char *txt, int r, int deg);
+void ui_arc_text_set(lv_obj_t *o, const char *txt, lv_color_t color);  // sadece değişince yeniden çizer
+lv_obj_t *ui_header(lv_obj_t *scr, const char *txt, int y);            // sayfa başlığı: üst taçta kavisli (y kullanılmaz)
+lv_obj_t *ui_scroll_list(lv_obj_t *scr);                                // round-safe vertical list area, kenarları söner
 lv_obj_t *ui_list_row(lv_obj_t *list, const char *name, lv_obj_t **value);
 lv_obj_t *ui_pill_button(lv_obj_t *parent, const char *txt, int w);
+/** Çember diliminin [a0, a1]° (saat yönü, 0 = sağ) rin..rout kısmının sınır kutusu, ekrana kırpılmış. */
+void ui_sector_area(float a0, float a1, int rin, int rout, lv_area_t *out);
+/** Halka parçasını 20°'lik dilimlerle geçersiz kılar: tek sınır kutusu neredeyse tüm ekran olurdu. */
+void ui_ring_invalidate(lv_obj_t *obj, float a0, float a1, int rin, int rout);
+/** Akıllı ekran (Ayarlar): tam gazda / vites noktasına yakın sürüş sayfası sadeleşir. Histerezisli. */
+bool ui_perf_update(bool *state, int64_t *t, float rpm, int shift, float map, int64_t now);
+/** Yayın dolgu rengini *color'dan çizer; renk değişince sayfa ui_ring_invalidate çağırır. */
+void ui_arc_color_bind(lv_obj_t *arc, const lv_color_t *color);
 
 // ---- AFR standards ----
 typedef struct {
@@ -136,6 +154,7 @@ void ui_request_dtc_page(void);         // arıza kodları sayfasına geç (uyar
 // ---- uyarılar (ui_alert.c): her sayfanın üstünde şerit / kart ve buzzer ----
 void ui_alert_init(void);
 void ui_alert_update(const vems_data_t *d, bool fresh, uint32_t mask);
+void ui_alert_theme(void);                  // tema değişince (sayfalar yeniden kurulurken)
 
 // ---- screens ----
 lv_obj_t *ui_splash_create(void);

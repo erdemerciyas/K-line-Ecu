@@ -32,9 +32,12 @@ typedef struct {
     uint8_t incl_warn;      // 10..45°: yan yatma uyarısı
     int16_t incl_up[3];     // eğim sıfırı: düz zeminde ölçülen "yukarı" (IMU ekseninde, mili-g); 0,0,0 = sıfırlanmadı
     uint8_t shift_col;      // vites ışığı renk takımı, SETTINGS_SHIFT_COLS indeksi
+    uint8_t theme;          // set_theme_t: gündüz, gece (kısık), kırmızı gece
+    uint8_t smart;          // 0 / 1: akıllı ekran, sürüş sayfası tam gazda sadeleşir
 } settings_t;
 
 typedef enum { SET_GAUGE_ANALOG = 0, SET_GAUGE_DIGITAL } set_gauge_t;
+typedef enum { SET_THEME_DAY = 0, SET_THEME_NIGHT, SET_THEME_RED } set_theme_t;
 
 typedef struct {
     const char *name;

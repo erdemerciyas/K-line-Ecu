@@ -46,8 +46,8 @@
 #define T_SWEEP_DOWN    450
 #define SCAN_MS         33          // tarama yaylarının dönüş adımı (~30 fps)
 
-#define C_HUD           lv_color_hex(0x00C8FF)  // camgöbeği: tarama ve sistem kontrolü
-#define C_SEG_OFF       lv_color_hex(0x15181E)
+#define C_HUD           ui_col(0x00C8FF)  // camgöbeği: tarama ve sistem kontrolü
+#define C_SEG_OFF       ui_col(0x15181E)
 
 static struct {
     lv_obj_t *ticks, *prog;      // ticks: çentikler + tarama yayları (elle çizilir)

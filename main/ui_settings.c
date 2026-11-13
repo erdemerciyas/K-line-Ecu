@@ -17,7 +17,7 @@
 #endif
 
 typedef enum {
-    ID_GAUGE, ID_VIEW, ID_GEAR, ID_ACCENT, ID_DIG1, ID_DIG2, ID_DIG3, ID_DIG4, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_SHIFTCOL, ID_RPMMAX,
+    ID_THEME, ID_GAUGE, ID_VIEW, ID_GEAR, ID_SMART, ID_ACCENT, ID_DIG1, ID_DIG2, ID_DIG3, ID_DIG4, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_SHIFTCOL, ID_RPMMAX,
     ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_BLE, ID_INCL, ID_INCL_WARN, ID_INCL_CAL, ID_RESCAN, ID_RESET, ID_VER,
     ID_COUNT
 } set_id_t;
@@ -30,9 +30,11 @@ typedef struct {
 } row_def_t;
 
 static const row_def_t ROWS[ID_COUNT] = {
+    [ID_THEME]  = {"Tema",           T_ENUM},
     [ID_GAUGE]  = {"Gösterge tipi",  T_ENUM},
     [ID_VIEW]   = {"Ana gösterge",   T_ENUM},
     [ID_GEAR]   = {"Büyük vites",    T_ENUM},
+    [ID_SMART]  = {"Akıllı ekran",   T_ENUM},
     [ID_ACCENT] = {"Vurgu rengi",    T_ENUM},
     // dijital kutucuklar: - / + ile seçilebilen veri listesinde gezilir
     [ID_DIG1]   = {"Dijital kutu 1", T_RANGE, 0, 0, 1},
@@ -80,7 +82,9 @@ static int get_val(set_id_t id)
     switch (id) {
     case ID_GAUGE:  return g_settings.gauge;
     case ID_VIEW:   return g_settings.main_view;
+    case ID_THEME:  return g_settings.theme;
     case ID_GEAR:   return g_settings.gear_big;
+    case ID_SMART:  return g_settings.smart;
     case ID_ACCENT: return g_settings.accent;
     case ID_DIG1:
     case ID_DIG2:
@@ -120,7 +124,9 @@ static int enum_count(set_id_t id)
     switch (id) {
     case ID_GAUGE:  return 2;
     case ID_VIEW:   return 2;
+    case ID_THEME:  return 3;
     case ID_GEAR:   return 2;
+    case ID_SMART:  return 2;
     case ID_ACCENT: return SETTINGS_ACCENT_COUNT < ENUM_MAX ? SETTINGS_ACCENT_COUNT : ENUM_MAX;
     case ID_SHIFTCOL: return SETTINGS_SHIFT_COL_COUNT < ENUM_MAX ? SETTINGS_SHIFT_COL_COUNT : ENUM_MAX;
     case ID_INCL:   return 2;
@@ -140,7 +146,9 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
     switch (id) {
     case ID_GAUGE:  snprintf(buf, len, "%s", v ? "Dijital" : "Analog"); break;
     case ID_VIEW:   snprintf(buf, len, "%s", v ? "Hız" : "Devir"); break;
+    case ID_THEME:  snprintf(buf, len, "%s", v == SET_THEME_RED ? "Kırmızı gece" : v ? "Gece" : "Gündüz"); break;
     case ID_GEAR:   snprintf(buf, len, "%s", v ? "Açık" : "Kapalı"); break;
+    case ID_SMART:  snprintf(buf, len, "%s", v ? "Açık" : "Kapalı"); break;
     case ID_ACCENT: snprintf(buf, len, "%s", SETTINGS_ACCENTS[v].name); break;
     case ID_DIG1:
     case ID_DIG2:
@@ -167,7 +175,7 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
 #endif
     case ID_RESCAN: snprintf(buf, len, "Yeniden ara"); break;
     case ID_RESET:  snprintf(buf, len, "Sıfırla"); break;
-    case ID_VER:    snprintf(buf, len, "v2.2 · ESP32-S3"); break;
+    case ID_VER:    snprintf(buf, len, "v2.3 · ESP32-S3"); break;
     default:        buf[0] = '\0'; break;
     }
 }
@@ -190,8 +198,10 @@ static void commit(set_id_t id, int v)
     switch (id) {
     case ID_GAUGE:  g_settings.gauge = v; drive = true; break;
     case ID_VIEW:   g_settings.main_view = v; drive = true; break;
+    case ID_THEME:  g_settings.theme = v; rebuild = true; break;
     case ID_GEAR:   g_settings.gear_big = v; drive = true; break;
-    case ID_ACCENT: g_settings.accent = v; drive = true; break;
+    case ID_SMART:  g_settings.smart = v; break;
+    case ID_ACCENT: g_settings.accent = v; rebuild = true; break;      // vurgu tüm sayfalarda
     case ID_DIG1:
     case ID_DIG2:
     case ID_DIG3:
@@ -248,7 +258,7 @@ static void editor_show_value(void)
         for (int i = 0; i < enum_count(s.id); i++) {
             const bool on = i == s.v;
             lv_obj_set_style_border_color(s.ed_opt[i], on ? C_PRIMARY : C_TILE_BRD, 0);
-            lv_obj_set_style_bg_color(s.ed_opt[i], on ? lv_color_hex(0x1A0A0B) : C_TILE, 0);
+            lv_obj_set_style_bg_color(s.ed_opt[i], on ? lv_color_mix(C_PRIMARY, C_BG, LV_OPA_20) : C_TILE, 0);
             lv_obj_set_style_text_color(lv_obj_get_child(s.ed_opt[i], 0), on ? C_TEXT : C_SOFT, 0);
         }
     }
@@ -299,7 +309,7 @@ static lv_obj_t *round_btn(lv_obj_t *parent, const char *sym, int x)
     lv_obj_align(b, LV_ALIGN_LEFT_MID, x, -10);
     lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(b, C_TILE, 0);
-    lv_obj_set_style_bg_color(b, lv_color_hex(0x0D2C4A), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(b, lv_color_mix(C_PRIMARY, C_BG, LV_OPA_30), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(b, C_TILE_BRD, 0);
     lv_obj_set_style_border_width(b, 2, 0);

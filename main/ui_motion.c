@@ -185,5 +185,5 @@ lv_color_t ui_shift_color(int stage)
 {
     const settings_shift_col_t *p = &SETTINGS_SHIFT_COLS[g_settings.shift_col < SETTINGS_SHIFT_COL_COUNT ? g_settings.shift_col : 0];
     const uint32_t c = stage <= 0 ? p->lo : stage == 1 ? p->mid : stage == 2 ? p->hi : p->flash;
-    return lv_color_hex(c ? c : SETTINGS_ACCENTS[g_settings.accent < SETTINGS_ACCENT_COUNT ? g_settings.accent : 0].rgb);
+    return ui_col(c ? c : SETTINGS_ACCENTS[g_settings.accent < SETTINGS_ACCENT_COUNT ? g_settings.accent : 0].rgb);
 }

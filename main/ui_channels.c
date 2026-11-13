@@ -130,7 +130,7 @@ lv_color_t ui_ch_color(vems_ch_t c, float v)
     const float batt_low = g_settings.batt_low / 10.0f;
     switch (c) {
     case CH_AFR:
-    case CH_TARGET: return lv_color_hex(ui_afr_zone(v / ui_stoich_afr())->color);
+    case CH_TARGET: return ui_col(ui_afr_zone(v / ui_stoich_afr())->color);
     case CH_CLT:    return v >= g_settings.clt_warn ? C_ALERT : v >= g_settings.clt_warn - 7 ? C_WARN : v < 40 ? C_ACCENT : C_TEXT;
     case CH_IAT:    return v >= 60 ? C_WARN : C_TEXT;
     case CH_BATT:   return (v < batt_low || v > 15.5f) ? C_ALERT : v < batt_low + 0.7f ? C_WARN : C_TEXT;

@@ -72,11 +72,11 @@
 #define POD_MAX         2
 #define POD_DX          60
 
-#define C_SEG_FROZEN    lv_color_hex(0x0F3C52)
-#define C_NEEDLE        lv_color_hex(0xFF5418)
-#define C_NEEDLE_CORE   lv_color_hex(0xFFD2B8)
-#define C_FLASH         lv_color_hex(0x4FB4FF)
-#define C_DOT_OFF       lv_color_hex(0x1A1D24)
+#define C_SEG_FROZEN    ui_col(0x0F3C52)
+#define C_NEEDLE        ui_col(0xFF5418)
+#define C_NEEDLE_CORE   ui_col(0xFFD2B8)
+#define C_FLASH         ui_col(0x4FB4FF)
+#define C_DOT_OFF       ui_col(0x1A1D24)
 
 // ---------------------------------------------------------------------------
 // Pişirilmiş kadran (PSRAM), ayarlar değişmedikçe sayfa yeniden kurulsa da korunur
@@ -89,6 +89,8 @@ static struct {
     volatile int shift;
     volatile int want_max;      // istenen anahtar
     volatile int want_shift;
+    volatile int theme;         // kadran renkleri temaya göre (Ayarlar > Tema)
+    volatile int want_theme;
     volatile uint32_t gen;      // her bitişte artar: sayfa bir kez yeniden çizilir
     TaskHandle_t task;
 } bake;
@@ -119,7 +121,9 @@ static rgbf_t scalef(rgbf_t a, float k)
 
 static lv_color_t to_color(rgbf_t c)
 {
-    return lv_color_make((uint8_t)(clamp01(c.r) * 255), (uint8_t)(clamp01(c.g) * 255), (uint8_t)(clamp01(c.b) * 255));
+    // tema süzgeci (gece / kırmızı gece) pişirmede uygulanır: karelerde maliyeti yok
+    return ui_col(((uint32_t)(clamp01(c.r) * 255) << 16) | ((uint32_t)(clamp01(c.g) * 255) << 8) |
+                  (uint32_t)(clamp01(c.b) * 255));
 }
 
 /** Segment rengi, segmentin başladığı devre göre. */
@@ -156,7 +160,7 @@ static bool bake_alloc(lv_img_dsc_t *d)
 }
 
 /** Kadranı sönük ve yanık iki görüntüye çizer (piksel piksel). İstek değişirse yarıda bırakır: false. */
-static bool bake_render(int rpm_max, int shift)
+static bool bake_render(int rpm_max, int shift, int theme)
 {
     lv_color_t *off = (lv_color_t *)bake.off.data;
     lv_color_t *lit = (lv_color_t *)bake.lit.data;
@@ -168,7 +172,7 @@ static bool bake_render(int rpm_max, int shift)
     const float half = (R_LED_OUT - R_LED_IN) / 2.0f;
 
     for (int y = 0; y < SCR_H; y++) {
-        if (bake.want_max != rpm_max || bake.want_shift != shift) {
+        if (bake.want_max != rpm_max || bake.want_shift != shift || bake.want_theme != theme) {
             return false;
         }
         if ((y & 31) == 0) {
@@ -253,15 +257,16 @@ static bool bake_render(int rpm_max, int shift)
 static void bake_task(void *arg)
 {
     while (1) {
-        const int mx = bake.want_max, sh = bake.want_shift;
-        if (mx == bake.rpm_max && sh == bake.shift) {
+        const int mx = bake.want_max, sh = bake.want_shift, th = bake.want_theme;
+        if (mx == bake.rpm_max && sh == bake.shift && th == bake.theme) {
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             continue;
         }
         const int64_t t0 = esp_timer_get_time();
-        if (bake_render(mx, sh)) {
+        if (bake_render(mx, sh, th)) {
             bake.rpm_max = mx;
             bake.shift = sh;
+            bake.theme = th;
             bake.gen++;
             ESP_LOGI("ui_main", "kadran pişti: %d ms (arka planda)", (int)((esp_timer_get_time() - t0) / 1000));
         }
@@ -277,11 +282,12 @@ static bool bake_dial(int rpm_max, int shift)
     if (!bake_alloc(&bake.off) || !bake_alloc(&bake.lit)) {
         return false;
     }
-    if (bake.rpm_max == rpm_max && bake.shift == shift) {
+    if (bake.rpm_max == rpm_max && bake.shift == shift && bake.theme == g_settings.theme) {
         return true;
     }
     bake.want_max = rpm_max;
     bake.want_shift = shift;
+    bake.want_theme = g_settings.theme;
     if (bake.task == NULL) {
         if (xTaskCreatePinnedToCore(bake_task, "bake", 4096, NULL, 1, &bake.task, 0) != pdPASS) {
             return false;
@@ -381,40 +387,17 @@ static struct {
     int64_t run_t0;
     char last_val[16];
     char last_sec[16];
+
+    // akıllı ekran: tam gazda kapsüller söner, büyük değer devir olur
+    bool perf;
+    int64_t perf_t;
+    bool perf_shown;
 } m;
 
 static float rpm_ang(float rpm)
 {
     // pişirilmiş kadranın ölçeği (sürüş sayfası ve açılış ekranı ortak), pişirilemediyse ayardaki
     return A0 + SPAN * rpm / (bake.rpm_max ? bake.rpm_max : m.rpm_max);
-}
-
-/** Halkanın [a0, a1] derece aralığının, rin..rout yarıçaplı kısmının sınır kutusu. */
-static void sector_area(float a0, float a1, int rin, int rout, lv_area_t *out)
-{
-    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
-    float angs[8];
-    int n = 0;
-    angs[n++] = a0;
-    angs[n++] = a1;
-    for (int k = (int)ceilf(a0 / 90); k * 90 < a1 && n < 8; k++) {
-        angs[n++] = k * 90.0f;
-    }
-    for (int i = 0; i < n; i++) {
-        const float c = cosf(angs[i] * DEG), s = sinf(angs[i] * DEG);
-        const int rs[2] = {rin, rout};
-        for (int j = 0; j < 2; j++) {
-            const float x = CX + c * rs[j], y = CY + s * rs[j];
-            x0 = fminf(x0, x);
-            x1 = fmaxf(x1, x);
-            y0 = fminf(y0, y);
-            y1 = fmaxf(y1, y);
-        }
-    }
-    out->x1 = LV_MAX(0, (lv_coord_t)x0 - 3);
-    out->y1 = LV_MAX(0, (lv_coord_t)y0 - 3);
-    out->x2 = LV_MIN(SCR_W - 1, (lv_coord_t)x1 + 3);
-    out->y2 = LV_MIN(SCR_H - 1, (lv_coord_t)y1 + 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +411,7 @@ static void draw_lit(lv_draw_ctx_t *ctx, int seg_a, int seg_b, lv_opa_t opa)
     }
     const float a0 = rpm_ang(seg_a * SEG_RPM), a1 = rpm_ang(seg_b * SEG_RPM);
     lv_area_t sec, clip;
-    sector_area(a0, a1, R_TICK_MAJ - 10, CX, &sec);
+    ui_sector_area(a0, a1, R_TICK_MAJ - 10, CX, &sec);
     if (!_lv_area_intersect(&clip, ctx->clip_area, &sec)) {
         return;
     }
@@ -543,14 +526,10 @@ static void needle_draw_cb(lv_event_t *e)
 }
 
 /** Değişen açı aralığını geçersiz kılar, sadece o kısım yeniden çizilir. */
-/** Dış halkanın [a0, a1] aralığını 30°'lik dilimlerle geçersiz kılar: halkanın sınır kutusu tüm ekran olurdu. */
+/** Dış halkanın [a0, a1] aralığını 20°'lik dilimlerle geçersiz kılar: halkanın sınır kutusu tüm ekran olurdu. */
 static void rim_invalidate(float a0, float a1)
 {
-    for (float a = a0; a < a1; a += 30) {
-        lv_area_t ar;
-        sector_area(a, fminf(a + 30, a1), R_LED_IN - 4, CX, &ar);
-        lv_obj_invalidate_area(m.ring, &ar);
-    }
+    ui_ring_invalidate(m.ring, a0, a1, R_LED_IN - 4, CX);
 }
 
 static void ring_commit(void)
@@ -598,7 +577,7 @@ static void ring_commit(void)
     }
     if (hi > lo) {
         lv_area_t a;
-        sector_area(lo, hi, R_NDL_IN - 8, CX, &a);
+        ui_sector_area(lo, hi, R_NDL_IN - 8, CX, &a);
         lv_obj_invalidate_area(m.ring, &a);
     }
     m.st = m.nx;
@@ -765,31 +744,21 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
     lv_obj_set_style_text_letter_space(m.status, 2, 0);
     lv_obj_align(m.status, LV_ALIGN_TOP_MID, 0, 108);
 
-    // vites: ayarda "Büyük vites" açıksa ortada büyük; kapalıysa ortada devir/hız, vites altta küçük kutucukta
+    // vites: ayarda "Büyük vites" açıksa ortada büyük; kapalıysa ortada devir/hız, vites altta vurgu renginde
     m.gear_big = g_settings.gear_big;
     if (m.gear_big) {
         m.gear = ui_label(scr, &ui_font_gear, C_TEXT, m.has_speed ? "N" : "");
-        lv_obj_align(m.gear, LV_ALIGN_TOP_MID, 0, 124);
+        lv_obj_align(m.gear, LV_ALIGN_TOP_MID, 0, 116);
     } else {
-        lv_obj_t *box = lv_obj_create(scr);
-        lv_obj_remove_style_all(box);
-        lv_obj_set_size(box, 52, 40);
-        lv_obj_set_style_radius(box, 10, 0);
-        lv_obj_set_style_bg_color(box, C_TILE, 0);
-        lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_color(box, C_TILE_BRD, 0);
-        lv_obj_set_style_border_width(box, 1, 0);
-        lv_obj_clear_flag(box, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);    // düşen rakam kutuda kırpılır
-        lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 268);
-        m.gear = ui_label(box, &ui_font_label_lg, C_TEXT, "N");
-        lv_obj_center(m.gear);
+        m.gear = ui_label(scr, &ui_font_display, C_PRIMARY, "N");
+        lv_obj_align(m.gear, LV_ALIGN_TOP_MID, 0, 272);
         if (!m.has_speed) {
-            lv_obj_add_flag(box, LV_OBJ_FLAG_HIDDEN);   // hız yoksa vites tahmini de yok
+            lv_obj_add_flag(m.gear, LV_OBJ_FLAG_HIDDEN);    // hız yoksa vites tahmini de yok
         }
     }
 
     const bool big_speed = m.speed_view;
-    const int y_val = m.gear_big ? 240 : 150, y_sec = m.gear_big ? 310 : 226;
+    const int y_val = m.gear_big ? 236 : 128, y_sec = m.gear_big ? 318 : 228;
     value_row(scr, y_val, &ui_font_big, &ui_font_label_lg, &m.val, &m.unit, big_speed ? "KM/H" : "RPM");
     if (m.has_speed) {
         value_row(scr, y_sec, &ui_font_value, &ui_font_label, &m.sec_val, &m.sec_unit, big_speed ? "RPM" : "KM/H");
@@ -811,6 +780,12 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
     m.clt_arc = m.has_clt ? gap_arc(scr, 100, 128, true) : NULL;
     m.load_arc = m.has_map ? gap_arc(scr, 52, 80, false) : NULL;
     m.clt_color = m.load_color = C_OK;
+    if (m.clt_arc) {
+        ui_arc_color_bind(m.clt_arc, &m.clt_color);
+    }
+    if (m.load_arc) {
+        ui_arc_color_bind(m.load_arc, &m.load_color);
+    }
 
     m.needle = layer_obj(scr, needle_draw_cb);
     ui_page_dots(scr, page, pages);
@@ -842,6 +817,7 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
     m.cut = false;
     m.clt = m.map = NAN;
     m.last_val[0] = m.last_sec[0] = '\0';
+    m.perf = m.perf_shown = false;
     ui_motion_reset();
 
     lv_timer_t *t = lv_timer_create(timer_cb, FRAME_MS, NULL);
@@ -906,6 +882,36 @@ static void set_color(lv_obj_t *o, lv_color_t c)
 {
     if (lv_obj_get_style_text_color(o, 0).full != c.full) {
         lv_obj_set_style_text_color(o, c, 0);
+    }
+}
+
+static void opa_anim_cb(void *o, int32_t v)
+{
+    lv_obj_set_style_opa(o, (lv_opa_t)v, 0);
+}
+
+/** Akıllı ekran geçişi: kapsüller 220 ms'de söner / yanar (küçük alanlar), birimler devir / hıza döner. */
+static void perf_apply(bool perf)
+{
+    m.perf_shown = perf;
+    for (int i = 0; i < m.npods; i++) {
+        lv_obj_t *objs[2] = {m.pod_cap[i], m.pod_val[i]};
+        for (int k = 0; k < 2; k++) {
+            lv_anim_t a;
+            lv_anim_init(&a);
+            lv_anim_set_var(&a, objs[k]);
+            lv_anim_set_exec_cb(&a, opa_anim_cb);
+            lv_anim_set_values(&a, lv_obj_get_style_opa(objs[k], 0), perf ? LV_OPA_30 : LV_OPA_COVER);
+            lv_anim_set_time(&a, 220);
+            lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+            lv_anim_start(&a);
+        }
+    }
+    if (m.speed_view && m.has_speed) {
+        ui_label_set(m.unit, perf ? "RPM" : "KM/H");
+        if (m.sec_val) {
+            ui_label_set(m.sec_unit, perf ? "KM/H" : "RPM");
+        }
     }
 }
 
@@ -1076,11 +1082,16 @@ static void frame(bool force)
         }
     }
 
+    // akıllı ekran: tam gazda büyük değer devir olur, kapsüller söner (sadece geçişte, karede stil yok)
+    if (ui_perf_update(&m.perf, &m.perf_t, live ? srpm : NAN, eff_shift, m.map, now) != m.perf_shown) {
+        perf_apply(m.perf);
+    }
+
     // değerler: devir 50'lik adımla (okunur kalsın), hız tam sayı
     char buf[16];
     const float spd = live ? mo.speed : NAN;
     const float rpm_txt = live ? roundf(mo.rpm / 50) * 50 : NAN;
-    const bool big_speed = m.speed_view && m.has_speed;
+    const bool big_speed = m.speed_view && m.has_speed && !m.perf_shown;
     ui_ch_format(big_speed ? CH_SPEED : CH_RPM, big_speed ? spd : rpm_txt, buf, sizeof(buf));
     if (strcmp(buf, m.last_val) != 0) {
         strcpy(m.last_val, buf);
@@ -1098,13 +1109,14 @@ static void frame(bool force)
 
     // vites: yeni viteste kısa mavi parlama, vites noktasında kırmızı yanıp söner
     gear_update(live ? mo.gear : 0, now, eff_shift);
-    lv_color_t gc = C_TEXT;
+    // küçük vites vurgu renginde, büyük vites beyaz; yeni viteste kısa beyaz / mavi parlama
+    lv_color_t gc = m.gear_big ? C_TEXT : C_PRIMARY;
     if (!live) {
         gc = C_TICK;
     } else if (shift) {
         gc = blink ? C_ALERT : C_TEXT;
     } else if (now - m.gear_t < 250 * 1000) {
-        gc = C_FLASH;
+        gc = m.gear_big ? C_FLASH : C_TEXT;
     } else if (srpm >= eff_shift - SHIFT_LEAD) {
         gc = C_WARN;
     }
@@ -1171,7 +1183,7 @@ void ui_main_update(const vems_data_t *d, bool fresh)
         const lv_color_t ac = col.full == C_TEXT.full || col.full == C_MUTED.full ? C_OK : col;
         if (ac.full != m.clt_color.full) {
             m.clt_color = ac;
-            lv_obj_set_style_arc_color(m.clt_arc, ac, LV_PART_INDICATOR);
+            ui_ring_invalidate(m.clt_arc, 100, 128, 204, 220);     // stil değil: sadece yay dilimi çizilir
         }
         const float f = isnan(m.clt) ? 0 : clamp01((m.clt - CLT_LO) / (CLT_HI - CLT_LO));
         const int16_t v = (int16_t)(f * 1000) / 10 * 10;
@@ -1185,7 +1197,7 @@ void ui_main_update(const vems_data_t *d, bool fresh)
         const lv_color_t ac = m.cut ? C_ACCENT : f > 0.8f ? C_ALERT : f > 0.55f ? C_WARN : C_PRIMARY;
         if (ac.full != m.load_color.full) {
             m.load_color = ac;
-            lv_obj_set_style_arc_color(m.load_arc, ac, LV_PART_INDICATOR);
+            ui_ring_invalidate(m.load_arc, 52, 80, 204, 220);
         }
         const int16_t v = (int16_t)(f * 1000) / 10 * 10;
         if (lv_arc_get_value(m.load_arc) != v) {

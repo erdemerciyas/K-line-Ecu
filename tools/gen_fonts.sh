@@ -17,14 +17,12 @@ NUM="0x25,0x2B-0x2E,0x30-0x3A,0xB0"
 # sayılar: kerning yok (rakam çiftleri kaymasın)
 $CONV --no-kerning --font "$TMP/BSC-SemiBold.ttf" -r $NUM --size 104 -o main/ui_font_big.c
 $CONV --no-kerning --font "$TMP/BSC-SemiBold.ttf" -r $NUM --size 34 -o main/ui_font_value.c
-$CONV --no-kerning --font "$TMP/BSC-Bold.ttf" -r $NUM,0x4E,0x52 --size 56 -o main/ui_font_display.c
-$CONV --no-kerning --font "$TMP/BSC-Bold.ttf" -r 0x2D,0x31-0x36,0x4E,0x52 --size 160 -o main/ui_font_gear.c
 # yazılar: Latin + Türkçe harfler, ° · … ›
 $CONV --font "$TMP/BSC-SemiBold.ttf" -r 0x20-0x7E -r $TR --size 16 -o main/ui_font_label.c
 $CONV --font "$TMP/BSC-SemiBold.ttf" -r 0x20-0x7E -r $TR --size 22 -o main/ui_font_label_lg.c
 $CONV --font "$TMP/BSC-SemiBold.ttf" -r 0x20-0x7E -r $TR --size 30 -o main/ui_font_title.c
 
-for f in big value display label label_lg title; do
+for f in big value label label_lg title; do
     node tools/font_tnum.js main/ui_font_$f.c
 done
 
@@ -33,6 +31,6 @@ fallback() { sed -i "s|^    .dsc = &font_dsc |    .fallback = \&lv_font_montserr
 fallback label 14
 fallback label_lg 16
 fallback title 24
-for f in big value display gear label label_lg title; do
+for f in big value label label_lg title; do
     sed -i '2i\ * Barlow Semi Condensed (c) The Barlow Project Authors, SIL Open Font License 1.1 (fonts.google.com/specimen/Barlow+Semi+Condensed)' "main/ui_font_$f.c"
 done

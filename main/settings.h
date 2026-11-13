@@ -24,7 +24,6 @@ typedef struct {
     uint8_t main_view;      // set_view_t: sürüş sayfasında büyük gösterilen değer
     uint16_t rotation;      // 0..359 derece, ekran saat yönünde döndürülür (kutu içinde yamuk duran ekran için)
     uint8_t ble;            // 0 / 1: Bluetooth telefon paneli yayını (yeni alanlar hep sona: eski kayıt okunabilsin)
-    uint8_t gear_big;       // 0 / 1: sürüş sayfasında ortada büyük vites; 0 = ortada devir/hız, vites küçük kutucukta
     uint8_t gauge;          // set_gauge_t: sürüş sayfası analog (LED halka + ibre) ya da dijital
     uint8_t accent;         // dijital göstergenin vurgu rengi, SETTINGS_ACCENTS indeksi
     uint8_t dig_ch[4];      // dijital göstergenin 4 kutucuğu, SETTINGS_DIG_CH indeksi

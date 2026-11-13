@@ -1,6 +1,6 @@
 /*
  * Dijital sürüş sayfası (Ayarlar > Gösterge tipi: Dijital): kenarda vurgu renginde devir yayı, ortada büyük
- * devir / hız ("Ana gösterge"), altında ikinci değer ve vurgu renginde vites, en altta Ayarlar'dan seçilen 4 veri
+ * devir / hız ("Ana gösterge"), altında ikinci değer, en altta Ayarlar'dan seçilen 4 veri
  * kutusuz okumalar halinde. Devir ve hız hareket katmanından (ui_motion.c) 30 fps; vites noktasında yay ve devir
  * kırmızı yanıp söner. Akıllı ekran açıksa tam gazda okumalar söner, büyük değer devir olur.
  * Yayın rengi stil değil çizimde verilir: flaşta sadece halka dilimleri yeniden çizilir (tüm 452 px kutu değil).
@@ -25,14 +25,12 @@ static struct {
     lv_obj_t *arc;
     lv_obj_t *red;              // kırmızı bölge (yayın zemini)
     lv_obj_t *val, *unit, *sec, *sec_unit;
-    lv_obj_t *gear;
     ui_readout_t rd[4];
     vems_ch_t ch[4];
     lv_color_t arc_color;       // yayın o anki rengi (çizimde okunur)
     bool has_speed, speed_view, fresh;
     uint32_t mask;
-    int rpm_max, shift, gear_shown;
-    int64_t gear_t;
+    int rpm_max, shift;
     float clt;                  // soğuk motorda vites noktası düşer
     float map;
     ui_shift_t sh;
@@ -186,19 +184,6 @@ static void frame(void)
         ui_label_set(g.sec, buf);
         set_color(g.sec, isnan(spd) ? C_MUTED : C_SOFT);
     }
-
-    if (g.has_speed) {
-        const int gear = live ? mo.gear : 0;
-        if (gear != g.gear_shown) {
-            g.gear_shown = gear;
-            g.gear_t = now;
-            snprintf(buf, sizeof(buf), gear ? "%d" : "N", gear);
-            lv_label_set_text(g.gear, buf);
-        }
-        lv_color_t gc = !live ? C_TICK : shift ? (blink ? C_ALERT : C_TEXT) : now - g.gear_t < 250 * 1000 ? C_TEXT
-                        : rpm >= limit - SHIFT_LEAD ? C_WARN : C_PRIMARY;
-        set_color(g.gear, gc);
-    }
 }
 
 static void timer_cb(lv_timer_t *t)
@@ -226,7 +211,6 @@ lv_obj_t *ui_digital_create(int page, int pages, uint32_t mask)
     g.speed_view = g.has_speed && g_settings.main_view == SET_VIEW_SPEED;
     g.rpm_max = g_settings.rpm_max;
     g.shift = g_settings.shift_rpm;
-    g.gear_shown = -1;
     g.fresh = false;
     g.clt = g.map = NAN;
     g.sh = (ui_shift_t){0};
@@ -261,11 +245,8 @@ lv_obj_t *ui_digital_create(int page, int pages, uint32_t mask)
     g.unit = value_row(scr, 92, &ui_font_big, &ui_font_label_lg, &g.val, big_speed ? "KM/H" : "RPM");
     if (g.has_speed) {
         g.sec_unit = value_row(scr, 188, &ui_font_value, &ui_font_label, &g.sec, big_speed ? "RPM" : "KM/H");
-        g.gear = ui_label(scr, &ui_font_display, C_TICK, "N");
-        lv_obj_align(g.gear, LV_ALIGN_TOP_MID, 0, 224);
     } else {
         g.sec = NULL;
-        g.gear = NULL;
     }
 
     // 4 okuma, 2 x 2, ortada ince ayırıcı; yayın uç etiketleri (y~376) dışarıda kalır

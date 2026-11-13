@@ -2,11 +2,11 @@
  * Sürüş sayfası, yarış oyunu göstergesi havasında. Dış halka devir LED'leri: maviden camgöbeğine, vites
  * noktasına yaklaşırken sarı, sonra kırmızı. Yanan segmentin ucu beyaz parlar, devir düşünce sönen segmentler
  * kısa bir iz bırakır, tepe değeri beyaz segmentte bir süre kalır. Üstünde turuncu bıçak ibre yay fiziğiyle
- * oturur (hafif aşma), hızlı dönüşte arkasında iz kalır. Ortada vites (hız / devir oranından), altında büyük
- * değer (hız ya da devir, dokununca değişir) ve küçük olanı. Üstteki 7 ışık vites noktasına yaklaşırken
+ * oturur (hafif aşma), hızlı dönüşte arkasında iz kalır. Ortada büyük değer (hız ya da devir, dokununca
+ * değişir), altında küçük olanı. Üstteki 7 ışık vites noktasına yaklaşırken
  * dolar (renk takımı Ayarlar > Vites ışığı rengi), noktada hepsi flaş yapar, halka ve kenar da yanıp söner.
  * Motor soğukken izin verilen devrin üstü buz mavisi, vites ışıkları o sınıra göre yanar.
- * Rozet satırı: bağlantı / arıza durumu, MÜKEMMEL / GEÇ / ERKEN VİTES, 0-100 süresi, YAKIT KESİK, MOTOR SOĞUK.
+ * Rozet satırı: bağlantı / arıza durumu, 0-100 süresi, YAKIT KESİK, MOTOR SOĞUK.
  * Ekran ilk açıldığında ve ECU bağlanınca ibre bir tur atar.
  *
  * Performans: kadran (segmentler, çentikler, çerçeve, parıltı) bir kez iki görüntüye pişirilir, sönük ve yanık
@@ -59,13 +59,8 @@
 #define SHIFT_DOTS      7
 #define BLINK_US        60000       // vites flaşı ~8 Hz
 #define SWEEP_US        (1300 * 1000)
-#define BADGE_US        (1800 * 1000)
 #define RESULT_US       (8000 * 1000)
 #define RUN_MAX_US      (40 * 1000 * 1000)
-#define REV_WINDOW_US   (2500 * 1000)   // devir tepesi: vites geçişi + onay süresini kapsar
-#define SHIFT_GAP_US    (1500 * 1000)   // vites geçişinde N'de kalınabilecek süre
-#define WOT_RECENT_US   (2000 * 1000)   // geçişten önce tam gaz bu kadar yakın olmalı
-#define WOT_KPA         85          // MAP bunun üstü: tam gaz
 #define CUT_KPA         32          // gaz kapalı, yüksek vakum: yakıt kesik
 #define CLT_LO          40
 #define CLT_HI          130
@@ -75,7 +70,6 @@
 #define C_SEG_FROZEN    ui_col(0x0F3C52)
 #define C_NEEDLE        ui_col(0xFF5418)
 #define C_NEEDLE_CORE   ui_col(0xFFD2B8)
-#define C_FLASH         ui_col(0x4FB4FF)
 #define C_DOT_OFF       ui_col(0x1A1D24)
 
 // ---------------------------------------------------------------------------
@@ -322,8 +316,6 @@ static struct {
     lv_color_t sc[4];       // vites ışığı renkleri: 3 dolma + flaş (ayardan)
     ui_shift_t sh;
     lv_obj_t *status;
-    lv_obj_t *gear;
-    bool gear_big;          // ayar: ortada büyük vites; değilse vites küçük kutucukta, ortada devir/hız
     lv_obj_t *val;
     lv_obj_t *unit;
     lv_obj_t *sec_val;
@@ -368,19 +360,8 @@ static struct {
     bool mil_on;
     int mil_codes;
     bool cut;
-    int64_t wot_t;
 
-    // vites ve rozetler
-    int gear_shown;
-    int64_t gear_t;
-    int gear_prev;          // son gerçek vites (N geçişinde de vites notu verilebilsin)
-    int64_t gear_prev_t;
-    float rev_max;          // son ECU devir örneklerinin tepesi (ibre aşması / tahmin dahil değil)
-    int64_t rev_us;
-    int64_t rev_t;
-    const char *badge;
-    lv_color_t badge_col;
-    int64_t badge_t;
+    // rozetler
     char result[32];
     int64_t result_t;
     int run;
@@ -642,7 +623,8 @@ static void value_row(lv_obj_t *scr, int y, const lv_font_t *font, const lv_font
     *val = ui_label(row, font, C_MUTED, "--");
     *unit = ui_label(row, ufont, C_MUTED, u);
     lv_obj_set_style_text_letter_space(*unit, 2, 0);
-    lv_obj_set_style_pad_bottom(*unit, font == &ui_font_big ? 8 : 2, 0);
+    // birim değerle aynı taban çizgisinde (satır alta hizalı: aradaki fark birimin alt boşluğu)
+    lv_obj_set_style_pad_bottom(*unit, font->base_line - ufont->base_line, 0);
 }
 
 static const char *pod_caption(vems_ch_t c, char *buf, size_t len)
@@ -726,8 +708,18 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
         lv_obj_align(l, LV_ALIGN_CENTER, (lv_coord_t)lroundf(cosf(a) * R_NUM), (lv_coord_t)lroundf(sinf(a) * R_NUM));
     }
 
+    // dikey ritim, 8 px ızgara: görünür kenarlar arası (harf üstü / taban çizgisi) 16, gruplar arası 32,
+    // başlık-değer 8. Blok, üstteki "4" etiketi ile alttaki yaylar arasında ortalı (~60 px üst ve alt).
+    // Etiket kutusu üstünden harf üstüne: label 4, value 5, big 11 px (yazı tipi ölçülerinden)
+    const int y_dots = 136;                 // ışıklar 136..148
+    const int y_status = y_dots + 12 + 16 - 4;      // harf 164..175
+    const int y_big = y_status + 4 + 11 + 16 - 11;  // rakam 191..265
+    const int y_sec = y_big + 11 + 74 + 16 - 5;     // rakam 281..305
+    const int y_cap = y_sec + 5 + 24 + 32 - 4;      // harf 337..348
+    const int y_pod = y_cap + 4 + 11 + 8 - 5;       // rakam 356..380
+
     // vites ışıkları
-    const int dot = 12, gap = 7, x0 = -(SHIFT_DOTS - 1) * (dot + gap) / 2;
+    const int dot = 12, gap = 8, x0 = -(SHIFT_DOTS - 1) * (dot + gap) / 2;
     for (int i = 0; i < SHIFT_DOTS; i++) {
         lv_obj_t *d = lv_obj_create(scr);
         lv_obj_remove_style_all(d);
@@ -736,30 +728,16 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
         lv_obj_set_style_bg_color(d, C_DOT_OFF, 0);
         lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
         lv_obj_clear_flag(d, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_align(d, LV_ALIGN_TOP_MID, x0 + i * (dot + gap), 90);
+        lv_obj_align(d, LV_ALIGN_TOP_MID, x0 + i * (dot + gap), y_dots);
         m.dots[i] = d;
     }
 
     m.status = ui_label(scr, &ui_font_label, C_WARN, "");
     lv_obj_set_style_text_letter_space(m.status, 2, 0);
-    lv_obj_align(m.status, LV_ALIGN_TOP_MID, 0, 108);
-
-    // vites: ayarda "Büyük vites" açıksa ortada büyük; kapalıysa ortada devir/hız, vites altta vurgu renginde
-    m.gear_big = g_settings.gear_big;
-    if (m.gear_big) {
-        m.gear = ui_label(scr, &ui_font_gear, C_TEXT, m.has_speed ? "N" : "");
-        lv_obj_align(m.gear, LV_ALIGN_TOP_MID, 0, 116);
-    } else {
-        m.gear = ui_label(scr, &ui_font_display, C_PRIMARY, "N");
-        lv_obj_align(m.gear, LV_ALIGN_TOP_MID, 0, 272);
-        if (!m.has_speed) {
-            lv_obj_add_flag(m.gear, LV_OBJ_FLAG_HIDDEN);    // hız yoksa vites tahmini de yok
-        }
-    }
+    lv_obj_align(m.status, LV_ALIGN_TOP_MID, 0, y_status);
 
     const bool big_speed = m.speed_view;
-    const int y_val = m.gear_big ? 236 : 128, y_sec = m.gear_big ? 318 : 228;
-    value_row(scr, y_val, &ui_font_big, &ui_font_label_lg, &m.val, &m.unit, big_speed ? "KM/H" : "RPM");
+    value_row(scr, y_big, &ui_font_big, &ui_font_label_lg, &m.val, &m.unit, big_speed ? "KM/H" : "RPM");
     if (m.has_speed) {
         value_row(scr, y_sec, &ui_font_value, &ui_font_label, &m.sec_val, &m.sec_unit, big_speed ? "RPM" : "KM/H");
     } else {
@@ -771,9 +749,9 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
         const int px = x + i * 2 * POD_DX;
         m.pod_cap[i] = ui_label(scr, &ui_font_label, C_MUTED, pod_caption(m.pod_ch[i], buf, sizeof(buf)));
         lv_obj_set_style_text_letter_space(m.pod_cap[i], 1, 0);
-        lv_obj_align(m.pod_cap[i], LV_ALIGN_TOP_MID, px, 350);
+        lv_obj_align(m.pod_cap[i], LV_ALIGN_TOP_MID, px, y_cap);
         m.pod_val[i] = ui_label(scr, &ui_font_value, C_MUTED, "--");
-        lv_obj_align(m.pod_val[i], LV_ALIGN_TOP_MID, px, 368);
+        lv_obj_align(m.pod_val[i], LV_ALIGN_TOP_MID, px, y_pod);
     }
 
     // alt boşlukta iki yay: solda hararet, sağda motor yükü (MAP)
@@ -803,15 +781,10 @@ lv_obj_t *ui_main_create(int page, int pages, uint32_t mask)
     }
     m.last_us = 0;
     m.sweep_t0 = 0;
-    m.gear_shown = 0;
-    m.gear_prev = 0;
-    m.rev_max = 0;
-    m.rev_us = 0;
     m.sh = (ui_shift_t){0};
     for (int i = 0; i < 4; i++) {
         m.sc[i] = ui_shift_color(i);
     }
-    m.badge = NULL;
     m.result_t = 0;
     m.run = RUN_IDLE;
     m.cut = false;
@@ -833,13 +806,6 @@ static float ease_out(float t)
     return 1 - (1 - t) * (1 - t) * (1 - t);
 }
 
-static void badge_set(const char *txt, lv_color_t col, int64_t now)
-{
-    m.badge = txt;
-    m.badge_col = col;
-    m.badge_t = now;
-}
-
 static void status_update(int64_t now, int cold_limit)
 {
     char buf[40];
@@ -854,9 +820,6 @@ static void status_update(int64_t now, int cold_limit)
         snprintf(buf, sizeof(buf), LV_SYMBOL_WARNING "  ARIZA · %d KOD", m.mil_codes > 0 ? m.mil_codes : 1);
         txt = buf;
         col = C_ALERT;
-    } else if (m.badge && now - m.badge_t < BADGE_US) {
-        txt = m.badge;
-        col = m.badge_col;
     } else if (m.result_t && now - m.result_t < RESULT_US) {
         txt = m.result;
         col = C_PRIMARY;
@@ -913,48 +876,6 @@ static void perf_apply(bool perf)
             ui_label_set(m.sec_unit, perf ? "KM/H" : "RPM");
         }
     }
-}
-
-static void gear_anim_cb(void *o, int32_t v)
-{
-    lv_obj_set_style_translate_y(o, v, 0);
-}
-
-static void gear_update(int g, int64_t now, int eff_shift)
-{
-    if (g == m.gear_shown || !m.has_speed) {
-        return;
-    }
-    // tam gazda bir üst vites: devrin tepe noktasına göre not. Geçiş uzun sürüp araya N girse de sayılır
-    const int from = m.gear_shown ? m.gear_shown : now - m.gear_prev_t < SHIFT_GAP_US ? m.gear_prev : 0;
-    if (m.gear_shown) {
-        m.gear_prev = m.gear_shown;
-        m.gear_prev_t = now;
-    }
-    if (from >= 1 && g == from + 1 && now - m.wot_t < WOT_RECENT_US) {
-        const float d = m.rev_max - eff_shift;
-        if (fabsf(d) <= 350) {
-            badge_set("MÜKEMMEL VİTES", C_OK, now);
-        } else if (d > 350) {
-            badge_set("GEÇ VİTES", C_WARN, now);
-        } else if (d > -1500) {
-            badge_set("ERKEN VİTES", C_ACCENT, now);
-        }
-    }
-    m.gear_shown = g;
-    m.gear_t = now;
-    char buf[4];
-    snprintf(buf, sizeof(buf), g ? "%d" : "N", g);
-    lv_label_set_text(m.gear, buf);
-    // vites "oturur": yukarıdan düşer, hafif zıplar
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, m.gear);
-    lv_anim_set_exec_cb(&a, gear_anim_cb);
-    lv_anim_set_values(&a, m.gear_big ? -22 : -12, 0);
-    lv_anim_set_time(&a, 280);
-    lv_anim_set_path_cb(&a, lv_anim_path_overshoot);
-    lv_anim_start(&a);
 }
 
 /** 0-100 km/h: durunca kurulur, kalkışta başlar, 100'de biter. */
@@ -1107,21 +1028,6 @@ static void frame(bool force)
         set_color(m.sec_val, isnan(spd) ? C_MUTED : (blink && big_speed) ? C_ALERT : C_SOFT);
     }
 
-    // vites: yeni viteste kısa mavi parlama, vites noktasında kırmızı yanıp söner
-    gear_update(live ? mo.gear : 0, now, eff_shift);
-    // küçük vites vurgu renginde, büyük vites beyaz; yeni viteste kısa beyaz / mavi parlama
-    lv_color_t gc = m.gear_big ? C_TEXT : C_PRIMARY;
-    if (!live) {
-        gc = C_TICK;
-    } else if (shift) {
-        gc = blink ? C_ALERT : C_TEXT;
-    } else if (now - m.gear_t < 250 * 1000) {
-        gc = m.gear_big ? C_FLASH : C_TEXT;
-    } else if (srpm >= eff_shift - SHIFT_LEAD) {
-        gc = C_WARN;
-    }
-    set_color(m.gear, gc);
-
     if (live) {
         run_update(spd, now);
     }
@@ -1135,15 +1041,6 @@ void ui_main_update(const vems_data_t *d, bool fresh)
     if (fresh) {
         ui_motion_feed(d);
     }
-    const int64_t now = esp_timer_get_time();
-    // vites notu için devir tepesi: sadece gerçek ECU örnekleri
-    if (fresh && d->rpm_us && d->rpm_us != m.rev_us) {
-        m.rev_us = d->rpm_us;
-        if (d->rpm >= m.rev_max || now - m.rev_t > REV_WINDOW_US) {
-            m.rev_max = d->rpm;
-            m.rev_t = now;
-        }
-    }
     m.mil_on = fresh && d->mil_on;
     m.mil_codes = fresh ? d->mil_codes : 0;
     m.clt = fresh ? d->clt_c : NAN;
@@ -1156,9 +1053,6 @@ void ui_main_update(const vems_data_t *d, bool fresh)
         m.cut = true;
     } else if (d->rpm < 1200 || m.map > CUT_KPA + 4) {
         m.cut = false;
-    }
-    if (!isnan(m.map) && m.map > WOT_KPA) {
-        m.wot_t = now;
     }
 
     for (int i = 0; i < m.npods; i++) {

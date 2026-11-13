@@ -32,12 +32,10 @@ lv_color_t ui_accent(void);             // ayardaki vurgu rengi, temaya göre
 
 // Barlow Semi Condensed (OFL), tools/gen_fonts.sh ile; rakamlar sabit genişlik (değer değişince sayı kaymaz)
 LV_FONT_DECLARE(ui_font_big);       // 104 px semibold, rakam . + - : % ° only
-LV_FONT_DECLARE(ui_font_display);   // 56 px bold, rakam . + - : % ° N R only (vites, büyük okuma)
 LV_FONT_DECLARE(ui_font_value);     // 34 px semibold, rakam . + - : % ° only
 LV_FONT_DECLARE(ui_font_title);     // 30 px semibold, falls back to Montserrat 24 for symbols
 LV_FONT_DECLARE(ui_font_label);     // 16 px semibold, falls back to Montserrat 14 for symbols
 LV_FONT_DECLARE(ui_font_label_lg);  // 22 px semibold, falls back to Montserrat 16 for symbols
-LV_FONT_DECLARE(ui_font_gear);      // 160 px bold, vites: 1-6 N R - only
 
 // HALKA geometrisi: taç (yazı / durum) dış kenarda, sayfa göstergesi altta kenarda
 #define UI_CROWN_R  206     // kavisli sayfa başlığının yarıçapı (dış halkası olmayan sayfalar)
@@ -117,14 +115,10 @@ void ui_ch_track(const vems_data_t *d, uint32_t mask);
 bool ui_ch_minmax(vems_ch_t c, float *lo, float *hi);
 void ui_ch_reset(vems_ch_t c);
 
-// ---- hareket katmanı (ui_motion.c): seyrek K-Line örneklerinden 60 fps devir / hız / vites ----
-#define UI_GEARS    5
-
+// ---- hareket katmanı (ui_motion.c): seyrek K-Line örneklerinden 60 fps devir / hız ----
 typedef struct {
     float rpm;              // o anki tahmin, NAN = örnek yok
-    float rpm_rate;         // rpm/s
-    float speed;            // km/h, vites oturmuşsa devirden; NAN = yok
-    int gear;               // 1..UI_GEARS, 0 = boş / bilinmiyor
+    float speed;            // km/h, NAN = yok
 } ui_motion_t;
 
 void ui_motion_reset(void);

@@ -13,7 +13,7 @@ static const char *TAG = "settings";
 
 #define NVS_NAMESPACE   "vems"
 #define NVS_KEY         "settings"
-#define SETTINGS_VER    4       // 3: gear_big eklendi (2'de o bayt yapı dolgusuydu), 4: theme + smart
+#define SETTINGS_VER    5       // 3: gear_big eklendi (2'de o bayt yapı dolgusuydu), 4: theme + smart, 5: gear_big çıktı
 
 const settings_fuel_t SETTINGS_FUELS[] = {
     {"Benzin", 14.7f},
@@ -90,7 +90,6 @@ static settings_t defaults(void)
 #endif
         .main_view = SET_VIEW_RPM,
         .ble = 1,
-        .gear_big = 0,
         .gauge = SET_GAUGE_ANALOG,
         .accent = 0,
         .dig_ch = {0, 1, 2, 3},     // hararet, tüketim, akü, MAP
@@ -109,7 +108,7 @@ static bool valid(const settings_t *s)
            s->rpm_max >= 6000 && s->rpm_max <= 10000 &&
            s->fuel < SETTINGS_FUEL_COUNT && s->pressure <= SET_PRESS_BOOST && s->proto <= SET_PROTO_KLINE &&
            s->clt_warn >= 95 && s->clt_warn <= 115 && s->batt_low >= 105 && s->batt_low <= 125 && s->beep <= 1 &&
-           s->main_view <= SET_VIEW_SPEED && s->rotation < 360 && s->ble <= 1 && s->gear_big <= 1 &&
+           s->main_view <= SET_VIEW_SPEED && s->rotation < 360 && s->ble <= 1 &&
            s->gauge <= SET_GAUGE_DIGITAL && s->accent < SETTINGS_ACCENT_COUNT && s->dig_ch[0] < SETTINGS_DIG_CH_COUNT &&
            s->dig_ch[1] < SETTINGS_DIG_CH_COUNT && s->dig_ch[2] < SETTINGS_DIG_CH_COUNT &&
            s->dig_ch[3] < SETTINGS_DIG_CH_COUNT && s->incl_page <= 1 && s->incl_warn >= 10 && s->incl_warn <= 45 &&
@@ -139,8 +138,13 @@ void settings_init(void)
     const size_t min_len = offsetof(stored_t, s) + offsetof(settings_t, rotation);
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
         if (nvs_get_blob(h, NVS_KEY, &st, &len) == ESP_OK && len >= min_len && st.ver >= 2 && st.ver <= SETTINGS_VER) {
-            if (st.ver == 2) {
-                st.s.gear_big = defaults().gear_big;    // sürüm 2 kaydında bu bayt dolguydu: değeri anlamsız
+            if (st.ver <= 4) {
+                // eski kayıtta ble'den sonra 1 bayt (gear_big / dolgu) vardı: gauge..incl_warn bir bayt geri kayar.
+                // incl_up ve sonrası iki düzende de aynı yerde (hizalama dolgusu boşluğu kapatır)
+                _Static_assert(offsetof(settings_t, incl_up) > offsetof(settings_t, incl_warn) + 1, "eski kayıt göçü");
+                uint8_t *p = (uint8_t *)&st.s;
+                memmove(p + offsetof(settings_t, gauge), p + offsetof(settings_t, gauge) + 1,
+                        offsetof(settings_t, incl_warn) + 1 - offsetof(settings_t, gauge));
             }
             if (st.ver <= 3) {
                 st.s.theme = defaults().theme;          // eski kayıtta bu baytlar yoktu ya da yapı dolgusuydu

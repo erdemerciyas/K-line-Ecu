@@ -17,7 +17,7 @@
 #endif
 
 typedef enum {
-    ID_THEME, ID_GAUGE, ID_VIEW, ID_GEAR, ID_SMART, ID_ACCENT, ID_DIG1, ID_DIG2, ID_DIG3, ID_DIG4, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_SHIFTCOL, ID_RPMMAX,
+    ID_THEME, ID_GAUGE, ID_VIEW, ID_SMART, ID_ACCENT, ID_DIG1, ID_DIG2, ID_DIG3, ID_DIG4, ID_BRIGHT, ID_ROTATE, ID_SHIFT, ID_SHIFTCOL, ID_RPMMAX,
     ID_FUEL, ID_PRESS, ID_PROTO, ID_CLT, ID_BATT, ID_BEEP, ID_BLE, ID_INCL, ID_INCL_WARN, ID_INCL_CAL, ID_RESCAN, ID_RESET, ID_VER,
     ID_COUNT
 } set_id_t;
@@ -33,7 +33,6 @@ static const row_def_t ROWS[ID_COUNT] = {
     [ID_THEME]  = {"Tema",           T_ENUM},
     [ID_GAUGE]  = {"Gösterge tipi",  T_ENUM},
     [ID_VIEW]   = {"Ana gösterge",   T_ENUM},
-    [ID_GEAR]   = {"Büyük vites",    T_ENUM},
     [ID_SMART]  = {"Akıllı ekran",   T_ENUM},
     [ID_ACCENT] = {"Vurgu rengi",    T_ENUM},
     // dijital kutucuklar: - / + ile seçilebilen veri listesinde gezilir
@@ -83,7 +82,6 @@ static int get_val(set_id_t id)
     case ID_GAUGE:  return g_settings.gauge;
     case ID_VIEW:   return g_settings.main_view;
     case ID_THEME:  return g_settings.theme;
-    case ID_GEAR:   return g_settings.gear_big;
     case ID_SMART:  return g_settings.smart;
     case ID_ACCENT: return g_settings.accent;
     case ID_DIG1:
@@ -125,7 +123,6 @@ static int enum_count(set_id_t id)
     case ID_GAUGE:  return 2;
     case ID_VIEW:   return 2;
     case ID_THEME:  return 3;
-    case ID_GEAR:   return 2;
     case ID_SMART:  return 2;
     case ID_ACCENT: return SETTINGS_ACCENT_COUNT < ENUM_MAX ? SETTINGS_ACCENT_COUNT : ENUM_MAX;
     case ID_SHIFTCOL: return SETTINGS_SHIFT_COL_COUNT < ENUM_MAX ? SETTINGS_SHIFT_COL_COUNT : ENUM_MAX;
@@ -147,7 +144,6 @@ static void val_text(set_id_t id, int v, char *buf, size_t len)
     case ID_GAUGE:  snprintf(buf, len, "%s", v ? "Dijital" : "Analog"); break;
     case ID_VIEW:   snprintf(buf, len, "%s", v ? "Hız" : "Devir"); break;
     case ID_THEME:  snprintf(buf, len, "%s", v == SET_THEME_RED ? "Kırmızı gece" : v ? "Gece" : "Gündüz"); break;
-    case ID_GEAR:   snprintf(buf, len, "%s", v ? "Açık" : "Kapalı"); break;
     case ID_SMART:  snprintf(buf, len, "%s", v ? "Açık" : "Kapalı"); break;
     case ID_ACCENT: snprintf(buf, len, "%s", SETTINGS_ACCENTS[v].name); break;
     case ID_DIG1:
@@ -199,7 +195,6 @@ static void commit(set_id_t id, int v)
     case ID_GAUGE:  g_settings.gauge = v; drive = true; break;
     case ID_VIEW:   g_settings.main_view = v; drive = true; break;
     case ID_THEME:  g_settings.theme = v; rebuild = true; break;
-    case ID_GEAR:   g_settings.gear_big = v; drive = true; break;
     case ID_SMART:  g_settings.smart = v; break;
     case ID_ACCENT: g_settings.accent = v; rebuild = true; break;      // vurgu tüm sayfalarda
     case ID_DIG1:

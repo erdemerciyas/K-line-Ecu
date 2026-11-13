@@ -613,7 +613,7 @@ static void build_poll_lists(uint32_t want)
         want |= FUEL_INPUTS | CH_BIT(CH_RPM);
     }
     s_rpm_fast = want == 0 || (want & CH_BIT(CH_RPM));
-    // devir + hız birlikte ekrandaysa (vites tahmini) hız 4 istekte bir, hızlı listeye ayrıca girmez
+    // devir + hız birlikte ekrandaysa hız 4 istekte bir, hızlı listeye ayrıca girmez
     s_speed_slot = s_rpm_fast && (want & CH_BIT(CH_SPEED)) && pid_supported(PID_SPEED);
     s_nfast = s_nslow = s_fi = s_si = 0;
     const bool wideband = pid_supported(PID_O2S1_WR_V) || pid_supported(PID_O2S1_WR_I);
@@ -666,7 +666,7 @@ static uint8_t next_pid(void)
     if ((s_rpm_fast && (slot & 1) == 0) || (s_nfast == 0 && s_nslow == 0)) {
         return PID_RPM;
     }
-    // devirle senkron hız: vites tahmini ve gösterge için
+    // devirle düzenli aralıkta hız: gösterge için
     if (s_speed_slot && (slot & 3) == 3) {
         return PID_SPEED;
     }
